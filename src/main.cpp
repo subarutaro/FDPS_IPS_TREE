@@ -18,15 +18,9 @@
 #include <vector>
 
 #include "unit.h"
-
-#define TUNING
-#include "timer.h"
-Profile timer;
-
 #include "pdb_manager.h"
 #include "constraint.h"
 #include "water_params.h"
-
 #include "user_defined_class.h"
 
 /* Cutoff functions */
@@ -206,27 +200,11 @@ struct CalcForceEpSp{
 					(16.0*alpha[8] + (18.0*alpha[9] * r2c2)))))))));
 	    poti += qq * (r_inv - 0.5*rc_inv * coef * coef2 * utmp - bound_ele_pot);
 	    fcl  += qq * (r2_inv*r_inv + 0.5*rc3_inv*coef2*(6.0*utmp + coef*ftmp))*rijk;
-#if 0
-	    if(idi==target && ep_j[j].ppp[k].mass > 0.0){
-	      int type = rij*rij <= rc_cl_sq ? 2 : 3;
-	      printf("%d %d %e %e %e %e %e\n",j,type,rijk.x,rijk.y,rijk.z,r,qq);
-	    }
-#endif
-	    /*
-	    printf("%e %e %e\n",
-		   r,
-		   qq * (r_inv - 0.5*rc_inv * coef * coef2 * utmp - bound_ele_pot),
-		   qq * (r2_inv + 0.5*rc3_inv*coef2*(6.0*utmp + coef*ftmp)*r));
-	    //*/
 	  }
 	}
 	for(int k=0;k<3;k++){
 	  PS::F64vec rijk = rij - ep_j[j].ppn[k].pos;
 	  const PS::F64 r2 = rijk*rijk;
-	  if(r2 < 1.0 && ep_j[j].ppn[k].mass != 0.0){
-	    printf("PPN is too close to epi: %d %d %lf %lf %lf : %lf\n",ep_i[i].id,j,rijk.x,rijk.y,rijk.z,ep_j[j].ppn[k].mass);
-	    printf("Distnce from GC: %lf\n",sqrt(ep_j[j].ppn[k].pos*ep_j[j].ppn[k].pos));
-	  }
 	  const PS::F64 r2_inv = 1.0/r2;
 	  if(0.0 < r2 && r2 <= rc_cl_sq){
 	    const PS::F64 r = sqrt(r2);
@@ -254,18 +232,6 @@ struct CalcForceEpSp{
 					(16.0*alpha[8] + (18.0*alpha[9] * r2c2)))))))));
 	    poti += qq * (r_inv - 0.5*rc_inv * coef * coef2 * utmp - bound_ele_pot);
 	    fcl  += qq * (r2_inv*r_inv + 0.5*rc3_inv*coef2*(6.0*utmp + coef*ftmp))*rijk;
-#if 0
-	    if(idi==target && ep_j[j].ppn[k].mass < 0.0){
-	      int type = rij*rij <= rc_cl_sq ? 4 : 5;
-	      printf("%d %d %e %e %e %e %e\n",j,type,rijk.x,rijk.y,rijk.z,r,qq);
-	    }
-#endif
-	    /*
-	    printf("%e %e %e\n",
-		   r,
-		   qq * (r_inv - 0.5*rc_inv * coef * coef2 * utmp - bound_ele_pot),
-		   qq * (r2_inv + 0.5*rc3_inv*coef2*(6.0*utmp + coef*ftmp)*r));
-	    //*/
 	  }
 	}
       }
@@ -275,35 +241,40 @@ struct CalcForceEpSp{
   }
 };
 
+//#define IPS_TREE_FORCE_ERROR_CHECK
+
 class ForceCalculator {
 public:
+#ifdef IPS_TREE_FORCE_ERROR_CHECK
   PS::TreeForForceShort<Force, EP, EP>::Scatter tree_short;
-  PS::TreeForForceLong<Force, EP, EP, MomentQuadrupoleSixPseudoParticleCutoff, SPJQuadrupoleSixPseudoParticleCutoff>::WithCutoff tree_long;
-  //PS::TreeForForceLong<Force, EP, EP, MomentQuadrupoleCutoff, SPJQuadrupoleCutoff>::WithCutoff pp;
+#endif
+  PS::TreeForForceLong
+  <Force, EP, EP,
+   MomentQuadrupoleSixPseudoParticleCutoff,
+   SPJQuadrupoleSixPseudoParticleCutoff>::WithCutoff tree_long;
 
   // Methods for water simulation
   template <class Tpsys>
-  void initialize(const Tpsys &system) {
+  void initialize(const Tpsys &system,const PS::F64 theta) {
     PS::S32 numPtclLocal = system.getNumberOfParticleLocal();
     PS::U64 ntot = 3 * numPtclLocal;
+#ifdef IPS_TREE_FORCE_ERROR_CHECK
     tree_short.initialize(ntot,0.0);
-    tree_long.initialize(ntot,0.2);
+#endif
+    tree_long.initialize(ntot,theta);
   };
 
   template <class Tpsys,class Tdinfo>
   void operator ()(Tpsys &system,Tdinfo &dinfo){
-    //printf("force calculation start\n");
-
+    // cut off radii settings
     const PS::F64 rcut_lj = 4.0*SIGMA_OXY;
-    //const PS::F64 rcut_cl = 20.0; // 20 angstrom
     const PS::F64 rcut_cl = 28.0; // 28 angstrom
-    //std::cout << "rcut is " << rcut << std::endl;
 
-    timer.beg(Profile::FORCE);
-    //* Reset potential and accelerations
+    // Reset potential and accelerations
     for (PS::S32 i=0; i<system.getNumberOfParticleLocal(); i++) {
       system[i].pot = 0.0;
       system[i].acc = 0.0;
+      // search radius must be larger than rcut_cl and shold have enough margin
       system[i].search_radius = 35.0;
     }
     tree_long.calcForceAll(CalcForceEpEp(rcut_lj,rcut_cl),
@@ -314,14 +285,14 @@ public:
       system[i].pot += result.pot;
       system[i].acc += result.f_lj + result.f_coulomb;
     }
-#if 1
+#ifdef IPS_TREE_FORCE_ERROR_CHECK
     tree_short.calcForceAll(CalcForceEpEp(rcut_lj,rcut_cl),
 			    system, dinfo);
     PS::F64 error = 0.0;
     for (PS::S32 i=0; i<system.getNumberOfParticleLocal(); i++) {
       Force exact = tree_short.getForce(i);
       const PS::F64vec acc = exact.f_lj + exact.f_coulomb;
-      const PS::F64vec diff = acc - system[i].acc;      
+      const PS::F64vec diff = acc - system[i].acc;
       printf("%d x %lf %lf\n",i,acc.x,fabs(diff.x/acc.x));
       printf("%d y %lf %lf\n",i,acc.y,fabs(diff.y/acc.y));
       printf("%d z %lf %lf\n",i,acc.z,fabs(diff.z/acc.z));
@@ -333,10 +304,8 @@ public:
     error /= 3.0 * system.getNumberOfParticleLocal();
     error = sqrt(error);
     fprintf(stderr,"error= %e\n",error);
-#endif    
-    timer.end(Profile::FORCE);
+#endif
     assert(system.getNumberOfParticleLocal()%3 == 0);
-    //printf("force calculation done\n");
   }
 };
 
@@ -409,13 +378,13 @@ void MakeIceLattice(Tpsys &psys,
   cell_size.x = unit.x * nx * sin(M_PI*60./180.);
   cell_size.y = unit.y * ny;
   cell_size.z = unit.z * nz;
-  fprintf(stderr,"cellsize: %lf %lf %lf\n",cell_size.x,cell_size.y,cell_size.z);
+  fprintf(stdout,"cellsize: %lf %lf %lf\n",cell_size.x,cell_size.y,cell_size.z);
 
   const int nunit = psys.getNumberOfParticleLocal();
   const int natom = nunit*nx*ny*nz;
   psys.setNumberOfParticleLocal(natom);
 
-  std::cerr << "density is " << unit_density*(MASS_OXY+MASS_HYD*2)*(natom/3.0) / (cell_size.x*cell_size.y*cell_size.z) << " [kg m^3]" << std::endl;
+  fprintf(stdout,"density is %lf kg m^3\n", unit_density*(MASS_OXY+MASS_HYD*2)*(natom/3.0) / (cell_size.x*cell_size.y*cell_size.z) );
 
   int count = nunit;
   for(int x=0;x<nx;x++){
@@ -537,7 +506,6 @@ void CalcEnergy(const Tpsys & system,
     epot_loc += system[i].pot;
   }
   ekin_loc *= 0.5;
-  //epot_loc *= 0.5;
 #ifdef PARTICLE_SIMULATOR_MPI_PARALLEL
   MPI::COMM_WORLD.Allreduce(&epot_loc, &epot, 1, PS::GetDataType<PS::F64>(), MPI::SUM);
   MPI::COMM_WORLD.Allreduce(&ekin_loc, &ekin, 1, PS::GetDataType<PS::F64>(), MPI::SUM);
@@ -571,7 +539,7 @@ int main(int argc, char *argv[]){
   PS::F64 Tbegin = PS::GetWtime();
   std::cout<<std::setprecision(15);
   std::cerr<<std::setprecision(15);
-  PS::F64 theta = 0.5;
+  PS::F64 theta = 0.2;
   const PS::S32 n_leaf_limit = 32;
 
   long long int nmol  = 500;
@@ -590,18 +558,10 @@ int main(int argc, char *argv[]){
   char dir_name[1024];
   int c;
   sprintf(dir_name,"./result");
-  while((c=getopt(argc,argv,"o:N:d:T:s:e:S:D:t:c:a:k:n:h")) != -1){
+  while((c=getopt(argc,argv,"o:T:s:e:S:D:t:n:h")) != -1){
     switch(c){
     case 'o':
       sprintf(dir_name,optarg);
-      break;
-    case 'N':
-      nmol = atoi(optarg);
-      std::cerr<<"nmol="<<nmol<<std::endl;
-      break;
-    case 'd':
-      density = atof(optarg) / unit_density;
-      std::cerr<<"density="<<density<<std::endl;
       break;
     case 'T':
       temperature = atof(optarg) / unit_temp;
@@ -624,8 +584,8 @@ int main(int argc, char *argv[]){
       std::cerr<<"nstep_diag="<<nstep_diag<<std::endl;
       break;
     case 't':
-      dt = atof(optarg);
-      std::cerr<<"dt="<<dt<<std::endl;
+      theta = atof(optarg);
+      std::cerr<<"theta="<<dt<<std::endl;
       break;
     case 'n':
       n_group_limit = atoi(optarg);
@@ -640,7 +600,7 @@ int main(int argc, char *argv[]){
       std::cerr<<"D: time step for diag(default: 100)"<<std::endl;
       std::cerr<<"e: number of steps for equilibration(default: 1000)"<<std::endl;
       std::cerr<<"o: dir name of output (default: ./result)"<<std::endl;
-      std::cerr<<"t: time step (default: 2.0 fs)"<<std::endl;
+      std::cerr<<"t: parameter for accuracy of force calculation (default: 0.2)"<<std::endl;
       std::cerr<<"c: cutoff length (default: 15.0 angstrom)"<<std::endl;
       std::cerr<<"n: n_group_limit (default: 64.0)"<<std::endl;
       return 0;
@@ -678,14 +638,10 @@ int main(int argc, char *argv[]){
     fout_tcal.open(sout_tcal);
   }
 
-  //if(PS::Comm::getRank()==0) printf("initializing particle system ...\n");
   PS::ParticleSystem<FP> system_water;
   system_water.initialize();
-  //if(PS::Comm::getRank()==0) printf("particle system is initialized!\n");
 
   PS::S32 n_grav_glb = n_tot;
-  //SetParticlesFCC(system_water, n_tot, box_size, temperature);
-  //ReadPDBFile(system_water,dinfo,"ice.pdb");
   PS::F64vec box_size;
   MakeIceLattice(system_water,box_size);
 
@@ -708,34 +664,29 @@ int main(int argc, char *argv[]){
 
   dinfo.collectSampleParticle(system_water);
   dinfo.decomposeDomain();
-  //if(PS::Comm::getRank()==0) printf("Domain was decomposed\n");
   system_water.exchangeParticle(dinfo);
-  //if(PS::Comm::getRank()==0) printf("Particles were exchanged\n");
 
   ForceCalculator ips_tree;
-  ips_tree.initialize(system_water);
+  ips_tree.initialize(system_water,theta);
   ips_tree(system_water,dinfo);
-  if(PS::Comm::getRank()==0) fprintf(stderr,"Force calculation is done\n");
 
   PS::F64 Epot0, Ekin0, Etot0, Epot1, Ekin1, Etot1;
   ScaleVelocity(system_water,temperature);
   CalcEnergy(system_water, Etot0, Ekin0, Epot0);
-  if(PS::Comm::getRank() == 0) fprintf(stderr,"Etot = %lf, Epot = %lf, Ekin = %lf\n",Etot0,Epot0,Ekin0);
+  if(PS::Comm::getRank() == 0) fprintf(stdout,"Etot = %lf, Epot = %lf, Ekin = %lf\n",Etot0,Epot0,Ekin0);
   PS::F64 Tloop = 0.0;
 
   PS::S32 snp_id = 0;
   PS::S32 time_snp = 0;
   PS::S32 time_diag = 0;
-  bool isInitialized = false;
   PS::F64 time_sys = -dt * nstep_eq;
+  bool isInitialized = false;
 
   PS::F64 Epot_ave = 0.0, Ekin_ave = 0.0;
   int n_loc = system_water.getNumberOfParticleLocal();
   const PS::S32 nstep_em = 0.5 * nstep_eq;
-  
-  timer.flush();
-  timer.beg(Profile::TOTAL);
-  if(PS::Comm::getRank()==0) fprintf(stderr,"Main loop start!\n");
+
+  // Main roop
   for(int s=-nstep_eq;s<nstep;s++){
     if(s < 0) ScaleVelocity(system_water,temperature);
     if(s%1000==0) RemoveTotalMomentum(system_water);
@@ -755,44 +706,31 @@ int main(int argc, char *argv[]){
     }
 
     for(int i=0;i<system_water.getNumberOfParticleLocal()/3;i++){
-      timer.beg(Profile::INTEG);
       for(int j=0;j<3;j++){
 	system_water[3*i+j].KeepCurrentPos();
 	system_water[3*i+j].IntegrateVel(0.5*dt);
 	system_water[3*i+j].IntegratePos(dt,box_size);
       }
-      timer.end(Profile::INTEG);
 
-      timer.beg(Profile::CONSTRAINT);
       constraint.Shake(&system_water[3*i],box_size,dt);
-      timer.end(Profile::CONSTRAINT);
     }
     SetGravityCenterForAtoms(system_water);
     PeriodicBoundaryCondition(system_water,dinfo);
-    timer.beg(Profile::DECOMP);
     if(s%10 == 0){
       dinfo.collectSampleParticle(system_water);
       dinfo.decomposeDomain();
     }
-    timer.end(Profile::DECOMP);
-    timer.beg(Profile::EXCHANGE);
     system_water.exchangeParticle(dinfo);
-    timer.end(Profile::EXCHANGE);
     assert(system_water.getNumberOfParticleLocal()%3 == 0);
 
-    // time is counted inside
     ips_tree(system_water, dinfo);
 
-    timer.beg(Profile::INTEG);
     for(int i=0;i<system_water.getNumberOfParticleLocal();i++){
       system_water[i].IntegrateVel(0.5*dt);
     }
-    timer.end(Profile::INTEG);
-    timer.beg(Profile::CONSTRAINT);
     for(int i=0;i<system_water.getNumberOfParticleLocal()/3;i++){
       constraint.Rattle(&system_water[3*i],box_size,dt);
     }
-    timer.end(Profile::CONSTRAINT);
     CalcEnergy(system_water, Etot1, Ekin1, Epot1);
     if(s>=0){
       Epot_ave += Epot1;
@@ -808,9 +746,6 @@ int main(int argc, char *argv[]){
     }
     time_sys += dt;
   }
-  timer.end(Profile::TOTAL);
-
-  if(PS::Comm::getRank()==0) timer.show();
   PS::Finalize();
   return 0;
 }

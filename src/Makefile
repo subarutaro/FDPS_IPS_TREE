@@ -6,6 +6,14 @@ FDPS_LOC = ../../FDPS
 FDPS_INC = -I$(FDPS_LOC)/src
 CXXFLAGS_COMMON = -std=c++11 -O3 -ffast-math -funroll-loops $(FDPS_INC)
 #CXXFLAGS_COMMON = -std=c++11 -O0 -Wall -Wextra -ftrapv -fexceptions -g3 $(FDPS_INC)
+
+# Debug macros
+#IPS_FLAGS += -DIPS_TREE_FORCE_ERROR_CHECK
+#IPS_FLAGS += -DIPS_TREE_PSEUDOPARTICLE_QUADRUPOLE_MOMENT_CHECK
+#IPS_FLAGS += -DIPS_TREE_PSEUDOPARTICLE_DISTANCE_CHECK
+
+CXXFLAGS_COMMON += $(IPS_FLAGS)
+
 # [1] Serial
 CXX = g++
 CXXFLAGS = $(CXXFLAGS_COMMON)
@@ -28,7 +36,7 @@ CXXFLAGS += -llapack -lblas -lgfortran
 #   Source and Object files
 #----------------------------------------------------------------------
 SRCS	= main.cpp
-HEDS    = pdb_manager.h unit.h timer.h user_defined_class.h constraint.h
+HEDS    = pdb_manager.h unit.h user_defined_class.h constraint.h
 
 TARGET = main.out
 

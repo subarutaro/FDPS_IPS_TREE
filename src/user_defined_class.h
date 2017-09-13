@@ -16,6 +16,9 @@ public:
   }
 };
 
+// =================
+// Force class
+// =================
 class Force{
 public:
   PS::F64vec3 f_lj;
@@ -28,6 +31,9 @@ public:
   }
 };
 
+// =========================================
+// Full particle and essential particle class
+// =========================================
 class FP{
 public:
   PS::S64 id;
@@ -94,7 +100,6 @@ public:
   PS::S64 id;
   PS::F64vec pos;
 
-  //PS::F64 mass;
   PS::F64 sigma;
   PS::F64 epsilon;
   PS::F64 charge;
@@ -104,12 +109,10 @@ public:
     return search_radius;
   }
   PS::F64vec getPos() const { return pos;}
-  //PS::F64    getCharge() const {return mass;}
   PS::F64    getCharge() const {return charge;}
   void copyFromFP(const FP & fp){
     pos     = fp.pos;
     id      = fp.id;
-    //mass    = fp.mass;
     sigma   = fp.sigma;
     epsilon = fp.epsilon;
     charge  = fp.charge;
@@ -258,7 +261,7 @@ void GeneratePseudoParticles(PseudoParticle pp[3],
     pp[0].pos = pp[1].pos = pp[2].pos = 0.0;
     return;
   }
-  /*
+#if 0
   if(mom.nptcl < 3){
     // place a particle with mass M at center of mass (= 0.0)
     pp[0].pos  = 0.0;
@@ -266,11 +269,9 @@ void GeneratePseudoParticles(PseudoParticle pp[3],
     // other particle does not exist (masses must be 0.0)
     pp[1].pos  = pp[2].pos  = 0.0;
     pp[1].mass = pp[2].mass = 0.0;
-    //printf("generate one particle\n");
     return;
   }
-  //*/
-  //printf("generate three particle\n");
+#endif
   PS::F64mat quad = CalcQuadrupoleMoment(mom.quadrupole);
   if(mom.mass < 0.0){
     quad = PS::F64mat(-quad.xx,-quad.yy,-quad.zz,-quad.xy,-quad.xz,-quad.yz);
@@ -279,16 +280,8 @@ void GeneratePseudoParticles(PseudoParticle pp[3],
   calc_eigen_value(quad,w,A); // eigenvalues w is in 昇順
 
   const PS::F64 mass = fabs(mom.mass);
-#if 0
-  if(mass < 0.0) printf("negative\n");
-  else           printf("positive\n");
-  printf("eigenvalue: %e %e %e\n",w[2],w[1],w[0]);
-#endif
   assert(w[2]>=w[1] && w[1]>=w[0]);
-  if(fabs(w[2]+w[1]+w[0]) > 1e-5){
-    fprintf(stderr,"warning: |a0 + a1 + a2(=-a0-a1)| = %e > 1e-5.\n",
-	    fabs((w[2]+w[1]+w[0])/w[2]));
-  };
+  assert(fabs(w[2]+w[1]+w[0]) < 1e-5);
   const PS::F64 alpha = sqrt((2.0*w[2] + w[1]) / mass);
   const PS::F64 beta  =
     (w[2]+2.0*w[1] <= 0.0) ? 0.0 : sqrt((w[2] + 2.0*w[1]) / (3.0*mass));
@@ -343,14 +336,7 @@ public:
   }
 
   PS::F64vec getPos() const {
-#if 0
-    const PS::F64  mass = positive.mass - negative.mass;
-    if(mass == 0.0) return PS::F64vec(0.0);
-    const PS::F64vec mom = (positive.mass * positive.pos) - (negative.mass * negative.pos);
-    return mom / mass;
-#else
     return pos;
-#endif
   }
   PS::F64ort getVertexOut() const { return vertex_out_; }
 
@@ -383,13 +369,9 @@ public:
     negative.set();
   }
   void accumulate(const MomentQuadrupoleSixPseudoParticleCutoff & mom){
-    if(mom.mass > 0.0){
-      mass += mom.mass;
-      pos  += mom.mass * mom.pos;
-    }else{
-      mass -= mom.mass;
-      pos  -= mom.mass * mom.pos;
-    }
+    const PS::F64 m = fabs(mom.mass);
+    mass += m;
+    pos  += m * mom.pos;
     positive.accumulate(mom.positive);
     negative.accumulate(mom.negative);
     vertex_out_.merge(mom.vertex_out_);
@@ -417,24 +399,21 @@ public:
     vtx = mom.getVertexOut();
     positive = mom.positive;
     negative = mom.negative;
-    //if(positive.mass == 0.0) positive.pos = pos;
-    //if(negative.mass == 0.0) negative.pos = pos;
     GeneratePseudoParticles(ppp,positive);
     GeneratePseudoParticles(ppn,negative);
 
+#ifdef IPS_TREE_PSEUDOPARTICLE_QUADRUPOLE_MOMENT_CHECK
     // check generated pseudo particle reproduce physical quadrupole moment
     //if(positive.nptcl >= 3)
       {
       const PS::F64mat qm_ppp = CalcQuadrupoleMoment(CalcQuadrupole(ppp));
       const PS::F64mat qm_mom = CalcQuadrupoleMoment(positive.quadrupole);
-#if 0
       printf("pseudo: %e %e %e %e %e %e\n",
 	     qm_ppp.xx, qm_ppp.yy, qm_ppp.zz,
 	     qm_ppp.xy, qm_ppp.xz, qm_ppp.yz);
       printf("original: %e %e %e %e %e %e\n",
   	     qm_mom.xx,qm_mom.yy,qm_mom.zz,
 	     qm_mom.xy,qm_mom.xz,qm_mom.yz);
-#endif
       assert(fabs(qm_mom.xx) < 1e-6 || fabs((qm_mom.xx-qm_ppp.xx)/qm_mom.xx) < 1e-6);
       assert(fabs(qm_mom.yy) < 1e-6 || fabs((qm_mom.yy-qm_ppp.yy)/qm_mom.yy) < 1e-6);
       assert(fabs(qm_mom.zz) < 1e-6 || fabs((qm_mom.zz-qm_ppp.zz)/qm_mom.zz) < 1e-6);
@@ -446,7 +425,6 @@ public:
       {
       const PS::F64mat qm_ppn = CalcQuadrupoleMoment(CalcQuadrupole(ppn));
       const PS::F64mat qm_mom = CalcQuadrupoleMoment(negative.quadrupole);
-#if 0
       fprintf(stderr,
 	      "pseudo: %e %e %e %e %e %e\n",
 	      qm_ppn.xx, qm_ppn.yy, qm_ppn.zz,
@@ -455,7 +433,6 @@ public:
 	      "original: %e %e %e %e %e %e\n",
 	      qm_mom.xx,qm_mom.yy,qm_mom.zz,
 	      qm_mom.xy,qm_mom.xz,qm_mom.yz);
-#endif
       assert(fabs(qm_mom.xx) < 1e-6 || fabs((qm_mom.xx-qm_ppn.xx)/qm_mom.xx) < 1e-6);
       assert(fabs(qm_mom.yy) < 1e-6 || fabs((qm_mom.yy-qm_ppn.yy)/qm_mom.yy) < 1e-6);
       assert(fabs(qm_mom.zz) < 1e-6 || fabs((qm_mom.zz-qm_ppn.zz)/qm_mom.zz) < 1e-6);
@@ -463,13 +440,13 @@ public:
       assert(fabs(qm_mom.xz) < 1e-6 || fabs((qm_mom.xz-qm_ppn.xz)/qm_mom.xz) < 1e-6);
       assert(fabs(qm_mom.yz) < 1e-6 || fabs((qm_mom.yz-qm_ppn.yz)/qm_mom.yz) < 1e-6);
     }
-
+#endif
     for(int i=0;i<3;i++){
       ppp[i].pos += positive.pos - pos;
       ppn[i].pos += negative.pos - pos;
-#if 0
-      printf("%lf %lf\n",ppp[i].mass,sqrt(ppp[i].pos*ppp[i].pos));
-      printf("%lf %lf\n",ppn[i].mass,sqrt(ppn[i].pos*ppn[i].pos));
+#ifdef IPS_TREE_PSEUDOPARTICLE_DISTANCE_CHECK
+      printf("distance between cm and pp: %lf %lf\n",ppp[i].mass,sqrt(ppp[i].pos*ppp[i].pos));
+      printf("distance between cm and pp: %lf %lf\n",ppn[i].mass,sqrt(ppn[i].pos*ppn[i].pos));
 #endif
     }
   }
@@ -490,42 +467,17 @@ public:
 
     vtx.init();
   }
-  /*
-  PS::F32 getCharge() const {
-    return mass;
-  }
-  //*/
+
   PS::F32vec getPos() const {
     return pos;
   }
   void setPos(const PS::F64vec & pos_new) {
     const PS::F64vec diff = pos_new - pos;
-#if 1
-    /*
-    printf("Before setPos:\n");
-    printf("pos     : %lf %lf %lf : %lf\n",pos.x,pos.y,pos.z,mass);
-    printf("positive: %lf %lf %lf : %lf\n",positive.pos.x,positive.pos.y,positive.pos.z,positive.mass);
-    printf("negative: %lf %lf %lf : %lf\n",negative.pos.x,negative.pos.y,negative.pos.z,negative.mass);
-    printf("pos_new : %lf %lf %lf\n",pos_new.x,pos_new.y,pos_new.z);
-    printf("diff    : %lf %lf %lf\n",diff.x,diff.y,diff.z);
-    //*/
-    PS::F64vec high(positive.pos.x >= negative.pos.x ? positive.pos.x : negative.pos.x,
-		    positive.pos.y >= negative.pos.y ? positive.pos.y : negative.pos.y,
-		    positive.pos.z >= negative.pos.z ? positive.pos.z : negative.pos.z);
-    PS::F64vec low( positive.pos.x <  negative.pos.x ? positive.pos.x : negative.pos.x,
-		    positive.pos.y <  negative.pos.y ? positive.pos.y : negative.pos.y,
-		    positive.pos.z <  negative.pos.z ? positive.pos.z : negative.pos.z);
-    assert(low.x <= pos.x && pos.x <= high.x);
-    assert(low.y <= pos.y && pos.y <= high.y);
-    assert(low.z <= pos.z && pos.z <= high.z);
-    assert(mass = positive.mass - negative.mass);
-#endif
     pos = pos_new;
     if(positive.mass != 0.0) positive.pos += diff;
     if(negative.mass != 0.0) negative.pos += diff;
   }
   MomentQuadrupoleSixPseudoParticleCutoff convertToMoment() const {
-    //const PS::F64ort v_out_dummy(0.0, 0.0);
     return MomentQuadrupoleSixPseudoParticleCutoff(mass,pos,positive, negative, vtx);
   }
 
@@ -542,108 +494,4 @@ public:
 	   vtx.high_.x,vtx.high_.y,vtx.high_.z);
   }
 };
-
-// test class
-class MomentQuadrupoleCutoff{
- public:
-  PS::F64 mass;
-  PS::F64vec pos;
-  PS::F64ort vertex_out_;
-  MomentQuadrupoleCutoff(){
-    mass = 0.0;
-    pos = 0.0;
-    vertex_out_.init();
-  }
-  MomentQuadrupoleCutoff(const PS::F64 m,
-		       const PS::F64vec & p,
-		       const PS::F64ort & v_out){
-    mass = m;
-    pos = p;
-    vertex_out_ = v_out;
-  }
-  void init(){
-    mass = 0.0;
-    pos = 0.0;
-    vertex_out_.init();
-  }
-  PS::F64vec getPos() const {
-    return pos;
-  }
-  PS::F64 getCharge() const {
-    return mass;
-  }
-  PS::F64ort getVertexOut() const { return vertex_out_; }
-  
-  template<class Tepj>
-    void accumulateAtLeaf(Tepj & epj){
-    if(epj.getCharge() > 0.0){
-      mass += epj.getCharge();
-      pos += epj.getCharge() * epj.getPos();
-    }else{
-      mass -= epj.getCharge();
-      pos  -= epj.getCharge() * epj.getPos();
-    }
-    (this->vertex_out_).merge(epj.getPos(), epj.getRSearch());
-  }
-  template<class Tepj>
-    void accumulateAtLeaf2(Tepj & epj){}
-  void set(){
-    pos = pos / mass;
-  }
-  void accumulate(const MomentQuadrupoleCutoff & mom){
-    if(mom.mass > 0.0){
-      mass += mom.mass;
-      pos  += mom.mass * mom.pos;
-    }else{
-      mass -= mom.mass;
-      pos  -= mom.mass * mom.pos;
-    }
-    (this->vertex_out_).merge(mom.vertex_out_);
-  }
-  void accumulate2(const MomentQuadrupoleCutoff & mom){}
-  // for DEBUG 
-  void dump(std::ostream & fout = std::cout) const {
-    fout<<"mass="<<mass<<std::endl;
-    fout<<"pos="<<pos<<std::endl;
-    fout<<"vertex_out_="<<vertex_out_<<std::endl;
-  }
-};
-
-class SPJQuadrupoleCutoff{
- public:
-  void copyFromMoment(const MomentQuadrupoleCutoff & mom){
-    mass = mom.mass;
-    pos  = mom.pos;
-  }
-  void clear(){
-    mass = 0.0;
-    pos = 0.0;
-  }        
-  PS::F64 getCharge() const {
-    return mass;
-  }
-  PS::F64vec getPos() const {
-    return pos;
-  }
-  void setPos(const PS::F64vec & pos_new) {
-    pos = pos_new;
-  }
-  /*
-    MomentQuadrupoleCutoff convertToMoment(const PS::F64vec & r_cutoff) const {
-    //const PS::F64ort v_out_dummy(0.0, 0.0);
-    // don't forget to expand box in calc moment global tree
-    const PS::F64ort v_out_dummy(pos-r_cutoff, pos+r_cutoff); 
-    return MomentQuadrupoleCutoff(mass, pos, v_out_dummy);
-    }
-  */
-  MomentQuadrupoleCutoff convertToMoment() const {
-    //const PS::F64ort v_out_dummy(0.0, 0.0);
-    const PS::F64ort v_out_dummy(0.0, 0.0);
-    return MomentQuadrupoleCutoff(mass, pos, v_out_dummy);
-  }
-  PS::F64 mass;
-  PS::F64vec pos;
-  //static PS::F64 r_cutoff;
-};
-
 #endif
