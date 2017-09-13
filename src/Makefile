@@ -2,7 +2,7 @@
 #   Numerical Libraries and Compilers
 #======================================================================
 
-FDPS_LOC = ../FDPS
+FDPS_LOC = ../../FDPS
 FDPS_INC = -I$(FDPS_LOC)/src
 CXXFLAGS_COMMON = -std=c++11 -O3 -ffast-math -funroll-loops $(FDPS_INC)
 #CXXFLAGS_COMMON = -std=c++11 -O0 -Wall -Wextra -ftrapv -fexceptions -g3 $(FDPS_INC)
@@ -16,18 +16,13 @@ CXXFLAGS += -llapack -lblas -lgfortran
 #CXXFLAGS = $(CXXFLAGS_COMMON) -DPARTICLE_SIMULATOR_THREAD_PARALLEL -fopenmp
 # [3] MPI
 #CXX = mpicxx
-#MPI_PATH = /nfshome/kentan/apps/jenever/mpich/3.2
+#MPI_PATH = $(HOME)/software/openmpi/1.8.1
 #CXX = $(MPI_PATH)/bin/mpicxx
 #CXXFLAGS = $(CXXFLAGS_COMMON) -DPARTICLE_SIMULATOR_MPI_PARALLEL
 #CXXFLAGS += -L$(MPI_PATH)/lib
 # [4] MPI + OpenMP
 #CXX = mpicxx
 #CXXFLAGS = $(CXXFLAGS_COMMON) -DPARTICLE_SIMULATOR_MPI_PARALLEL -DPARTICLE_SIMULATOR_THREAD_PARALLEL -fopenmp
-
-#----------------------------------------------------------------------
-#   WORKDIR
-#----------------------------------------------------------------------
-WORKDIR = ./work
 
 #----------------------------------------------------------------------
 #   Source and Object files
