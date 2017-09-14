@@ -23,8 +23,6 @@
 #include "water_params.h"
 #include "user_defined_class.h"
 
-/* Cutoff functions */
-
 const PS::F64 alpha[10] = {
   0.19578,
   0.0125143224110408,
@@ -36,7 +34,7 @@ const PS::F64 alpha[10] = {
   59.9544311773618,
   13.9564907382725,
   -8.66620089071555
-  };
+};
 
 const int target = 0;
 
@@ -62,7 +60,6 @@ struct CalcForceEpEp{
 
     for(PS::S32 i=0; i<n_ip; i++){
       const PS::F64vec ri = ep_i[i].pos;
-      //PS::F64vec ai = 0.0;
       PS::F64vec flj = 0.0;
       PS::F64vec fcl = 0.0;
       PS::F64 poti = 0.0;
@@ -80,10 +77,10 @@ struct CalcForceEpEp{
 	  const PS::F64 r = sqrt(r2);
 	  const PS::F64 r_inv = r2_inv * r;
 	  const PS::F64 qq = charge_i * ep_j[j].getCharge();
-	  PS::F64 rc = r * rc_inv;
-	  PS::F64 r2c2 = rc*rc;
-	  PS::F64 coef = (rc*rc - alpha[0]*alpha[0]);
-	  PS::F64 coef2 = coef*coef;
+	  const PS::F64 rc = r * rc_inv;
+	  const PS::F64 r2c2 = rc*rc;
+	  const PS::F64 coef = (rc*rc - alpha[0]*alpha[0]);
+	  const PS::F64 coef2 = coef*coef;
 	  const PS::F64 utmp = r2c2 * (alpha[1] + r2c2*
 				       (alpha[2] + r2c2*
 					(alpha[3] + r2c2*
@@ -102,12 +99,6 @@ struct CalcForceEpEp{
 				      (16.0*alpha[8] + (18.0*alpha[9] * r2c2)))))))));
 	  poti += qq * (r_inv - 0.5*rc_inv * coef * coef2 * utmp - bound_ele_pot);
 	  fcl  += qq * (r2_inv*r_inv + 0.5*rc3_inv*coef2*(6.0*utmp + coef*ftmp))*rij;
-#if 0
-	  if(idi==target){
-	    const PS::S32 type = ep_j[j].charge < 0.0 ? 0 : 1;
-	    printf("%d %d %e %e %e %e %e\n",ep_j[j].id,type,rij.x,rij.y,rij.z,r,qq);
-	  }
-#endif
 	}
 	if (0.0 < r2 && r2 <= rc_lj_sq) {
 	  const PS::F64 sigma    = 0.5*(sigma_i + ep_j[j].sigma);
@@ -153,31 +144,14 @@ struct CalcForceEpSp{
       const PS::S64 idi = ep_i[i].id;
       const PS::F64 charge_i  = ep_i[i].charge;
       for(PS::S32 j=0; j<n_jp; j++){
-	PS::F64vec rij = ri - ep_j[j].getPos();
-#if 0
-	if(idi==target && rij*rij <= 900.){
-	  int type = rij*rij <= rc_cl_sq ? 6 : 7;
-	  printf("%d %d %e %e %e\n",j,type,rij.x,rij.y,rij.z);
-	}
-#endif
-	// pseudo particles with positive charge
-	for(int k=0;k<3;k++){
-	  PS::F64vec rijk = rij - ep_j[j].ppp[k].pos;
-	  const PS::F64 r2 = rijk*rijk;
-	  if(r2 < 1.0 && ep_j[j].ppp[k].mass != 0.0){
-	    printf("PPP is too close to epi: %d %d %lf %lf %lf : %lf\n",ep_i[i].id,j,rijk.x,rijk.y,rijk.z,ep_j[j].ppp[k].mass);
-	    /*
-	    printf("Distnce from GC: %lf\n",sqrt(ep_j[j].ppp[k].pos*ep_j[j].ppp[k].pos));
-	    PS::F64vec tmp = ep_j[j].pos - ep_j[j].positive.pos;
- 	    printf("Distnce between GC and center: %lf\n",sqrt(tmp*tmp));
-	    //*/
-	    ep_j[j].DebugPrint();
-	  }
+	for(int k=0;k<6;k++){
+	  PS::F64vec rij = ri - ep_j[j].pp[k].pos;
+	  const PS::F64 r2 = rij*rij;
 	  if(0.0 < r2 && r2 <= rc_cl_sq){
 	    const PS::F64 r2_inv = 1.0/r2;
 	    const PS::F64 r = sqrt(r2);
 	    const PS::F64 r_inv = r2_inv * r;
-	    const PS::F64 qq = charge_i * ep_j[j].ppp[k].mass;
+	    const PS::F64 qq = charge_i * ep_j[j].pp[k].mass;
 	    PS::F64 rc = r * rc_inv;
 	    PS::F64 r2c2 = rc*rc;
 	    PS::F64 coef = (rc*rc - alpha[0]*alpha[0]);
@@ -199,39 +173,7 @@ struct CalcForceEpSp{
 				       (14.0*alpha[7] + r2c2*
 					(16.0*alpha[8] + (18.0*alpha[9] * r2c2)))))))));
 	    poti += qq * (r_inv - 0.5*rc_inv * coef * coef2 * utmp - bound_ele_pot);
-	    fcl  += qq * (r2_inv*r_inv + 0.5*rc3_inv*coef2*(6.0*utmp + coef*ftmp))*rijk;
-	  }
-	}
-	for(int k=0;k<3;k++){
-	  PS::F64vec rijk = rij - ep_j[j].ppn[k].pos;
-	  const PS::F64 r2 = rijk*rijk;
-	  const PS::F64 r2_inv = 1.0/r2;
-	  if(0.0 < r2 && r2 <= rc_cl_sq){
-	    const PS::F64 r = sqrt(r2);
-	    const PS::F64 r_inv = r2_inv * r;
-	    const PS::F64 qq = charge_i * ep_j[j].ppn[k].mass;
-	    PS::F64 rc = r * rc_inv;
-	    PS::F64 r2c2 = rc*rc;
-	    PS::F64 coef = (rc*rc - alpha[0]*alpha[0]);
-	    PS::F64 coef2 = coef*coef;
-	    const PS::F64 utmp = r2c2 * (alpha[1] + r2c2*
-					 (alpha[2] + r2c2*
-					  (alpha[3] + r2c2*
-					   (alpha[4] + r2c2*
-					    (alpha[5] + r2c2*
-					     (alpha[6] + r2c2*
-					      (alpha[7] + r2c2*
-					       (alpha[8] + (alpha[9] * r2c2)))))))));
-	    const PS::F64 ftmp = (2.0*alpha[1] + r2c2*
-				  (4.0*alpha[2] + r2c2*
-				   (6.0*alpha[3] + r2c2*
-				    (8.0*alpha[4] + r2c2*
-				     (10.0*alpha[5] + r2c2*
-				      (12.0*alpha[6] + r2c2*
-				       (14.0*alpha[7] + r2c2*
-					(16.0*alpha[8] + (18.0*alpha[9] * r2c2)))))))));
-	    poti += qq * (r_inv - 0.5*rc_inv * coef * coef2 * utmp - bound_ele_pot);
-	    fcl  += qq * (r2_inv*r_inv + 0.5*rc3_inv*coef2*(6.0*utmp + coef*ftmp))*rijk;
+	    fcl  += qq * (r2_inv*r_inv + 0.5*rc3_inv*coef2*(6.0*utmp + coef*ftmp))*rij;
 	  }
 	}
       }
@@ -240,8 +182,6 @@ struct CalcForceEpSp{
     }
   }
 };
-
-//#define IPS_TREE_FORCE_ERROR_CHECK
 
 class ForceCalculator {
 public:
@@ -368,40 +308,40 @@ void ReadPDBFile(Tpsys &psys,
 template<class Tpsys>
 void MakeIceLattice(Tpsys &psys,
 		    PS::F64vec &cell_size){
-  ReadPDBFile(psys,"ice_unit.pdb");
 
-  //const PS::S32 nx=16,ny=16,nz=8;
   const PS::S32 nx=8,ny=8,nz=4;
-  //const PS::S32 nx=2,ny=2,nz=2;
   const PS::F64vec unit(4.511,4.511,7.315);
-  //const PS::F64vec unit(4.48,4.48,7.31);
   cell_size.x = unit.x * nx * sin(M_PI*60./180.);
   cell_size.y = unit.y * ny;
   cell_size.z = unit.z * nz;
   fprintf(stdout,"cellsize: %lf %lf %lf\n",cell_size.x,cell_size.y,cell_size.z);
+  
+  if(PS::Comm::getRank()==0){
+    ReadPDBFile(psys,"ice_unit.pdb");
 
-  const int nunit = psys.getNumberOfParticleLocal();
-  const int natom = nunit*nx*ny*nz;
-  psys.setNumberOfParticleLocal(natom);
+    const int nunit = psys.getNumberOfParticleLocal();
+    const int natom = nunit*nx*ny*nz;
+    psys.setNumberOfParticleLocal(natom);
 
-  fprintf(stdout,"density is %lf kg m^3\n", unit_density*(MASS_OXY+MASS_HYD*2)*(natom/3.0) / (cell_size.x*cell_size.y*cell_size.z) );
+    fprintf(stdout,"density is %lf kg m^3\n", unit_density*(MASS_OXY+MASS_HYD*2)*(natom/3.0) / (cell_size.x*cell_size.y*cell_size.z) );
 
-  int count = nunit;
-  for(int x=0;x<nx;x++){
-    for(int y=0;y<ny;y++){
-      for(int z=0;z<nz;z++){
-	if(x==0 && y==0 && z==0)continue;
-	for(int i=0;i<12;i++){
-	  psys[count] = psys[i];
+    int count = nunit;
+    for(int x=0;x<nx;x++){
+      for(int y=0;y<ny;y++){
+	for(int z=0;z<nz;z++){
+	  if(x==0 && y==0 && z==0)continue;
+	  for(int i=0;i<12;i++){
+	    psys[count] = psys[i];
 
-	  psys[count].pos.x += unit.x*x*sin(M_PI*60./180.);
-	  psys[count].pos.y += unit.x*x*cos(M_PI*60./180.) + unit.y*y;
-	  psys[count].pos.z += unit.z*z;
-	  psys[count].id = count;
-	  count++;
-	}
-      }}}
-  assert(count == natom);
+	    psys[count].pos.x += unit.x*x*sin(M_PI*60./180.);
+	    psys[count].pos.y += unit.x*x*cos(M_PI*60./180.) + unit.y*y;
+	    psys[count].pos.z += unit.z*z;
+	    psys[count].id = count;
+	    count++;
+	  }
+	}}}
+    assert(count == natom);
+  }
 }
 
 template<class Tpsys,class Tdinfo>
@@ -519,6 +459,7 @@ void CalcEnergy(const Tpsys & system,
 template<class Tpsys>
 void SetGravityCenterForAtoms(Tpsys & system){
   const PS::S32 n = system.getNumberOfParticleLocal();
+  assert(n%3 == 0);
   const unsigned int nmol = n/3;
   for(unsigned int i=0;i<nmol;i++){
     PS::F64vec3 gpos = 0.0;
@@ -543,8 +484,8 @@ int main(int argc, char *argv[]){
   const PS::S32 n_leaf_limit = 32;
 
   long long int nmol  = 500;
-  PS::F64 density     = 0.997 * 1e3 / unit_density; // 1000 kg/m^3
-  PS::F64 temperature = 80.0 / unit_temp;        // 300 K
+  PS::F64 density     = 0.997 * 1e3 / unit_density; // 997 kg/m^3
+  PS::F64 temperature = 80.0 / unit_temp;           // 80 K
 
   PS::F64 dt   = 2.0 * 1e-15 / unit_time; // 2 fs
 
@@ -565,44 +506,46 @@ int main(int argc, char *argv[]){
       break;
     case 'T':
       temperature = atof(optarg) / unit_temp;
-      std::cerr<<"temperature="<< temperature << " = " << temperature*unit_temp << " K" << std::endl;
+      if(PS::Comm::getRank()==0) std::cerr<<"temperature="<< temperature << " = " << temperature*unit_temp << " K" << std::endl;
       break;
     case 's':
       nstep = atoi(optarg);
-      std::cerr<<"nstep="<<nstep<<std::endl;
+      if(PS::Comm::getRank()==0)std::cerr<<"nstep="<<nstep<<std::endl;
       break;
     case 'e':
       nstep_eq = atoi(optarg);
-      std::cerr<<"nstep_eq="<<nstep_eq<<std::endl;
+      if(PS::Comm::getRank()==0)std::cerr<<"nstep_eq="<<nstep_eq<<std::endl;
       break;
     case 'S':
       nstep_snp = atoi(optarg);
-      std::cerr<<"nstep_snp="<<nstep_snp<<std::endl;
+      if(PS::Comm::getRank()==0)std::cerr<<"nstep_snp="<<nstep_snp<<std::endl;
       break;
     case 'D':
       nstep_diag = atoi(optarg);
-      std::cerr<<"nstep_diag="<<nstep_diag<<std::endl;
+      if(PS::Comm::getRank()==0)std::cerr<<"nstep_diag="<<nstep_diag<<std::endl;
       break;
     case 't':
       theta = atof(optarg);
-      std::cerr<<"theta="<<dt<<std::endl;
+      if(PS::Comm::getRank()==0)std::cerr<<"theta="<<theta<<std::endl;
       break;
     case 'n':
       n_group_limit = atoi(optarg);
-      std::cerr<<"n_group_limit="<<n_group_limit<<std::endl;
+      if(PS::Comm::getRank()==0)std::cerr<<"n_group_limit="<<n_group_limit<<std::endl;
       break;
     case 'h':
-      std::cerr<<"N: n_tot (default: 1000)"<<std::endl;
-      std::cerr<<"d: number density (default: 1000 kg/m^3)"<<std::endl;
-      std::cerr<<"T: temperature (default: 300 K)"<<std::endl;
-      std::cerr<<"s: number of steps (default: 1000)"<<std::endl;
-      std::cerr<<"S: time step for snapshot(default: 100)"<<std::endl;
-      std::cerr<<"D: time step for diag(default: 100)"<<std::endl;
-      std::cerr<<"e: number of steps for equilibration(default: 1000)"<<std::endl;
-      std::cerr<<"o: dir name of output (default: ./result)"<<std::endl;
-      std::cerr<<"t: parameter for accuracy of force calculation (default: 0.2)"<<std::endl;
-      std::cerr<<"c: cutoff length (default: 15.0 angstrom)"<<std::endl;
-      std::cerr<<"n: n_group_limit (default: 64.0)"<<std::endl;
+      if(PS::Comm::getRank()==0){
+	std::cerr<<"N: n_tot (default: 1000)"<<std::endl;
+	std::cerr<<"d: number density (default: 1000 kg/m^3)"<<std::endl;
+	std::cerr<<"T: temperature (default: 300 K)"<<std::endl;
+	std::cerr<<"s: number of steps (default: 1000)"<<std::endl;
+	std::cerr<<"S: time step for snapshot(default: 100)"<<std::endl;
+	std::cerr<<"D: time step for diag(default: 100)"<<std::endl;
+	std::cerr<<"e: number of steps for equilibration(default: 1000)"<<std::endl;
+	std::cerr<<"o: dir name of output (default: ./result)"<<std::endl;
+	std::cerr<<"t: parameter for accuracy of force calculation (default: 0.2)"<<std::endl;
+	std::cerr<<"c: cutoff length (default: 15.0 angstrom)"<<std::endl;
+	std::cerr<<"n: n_group_limit (default: 64.0)"<<std::endl;
+      }
       return 0;
     }
   }
@@ -711,7 +654,6 @@ int main(int argc, char *argv[]){
 	system_water[3*i+j].IntegrateVel(0.5*dt);
 	system_water[3*i+j].IntegratePos(dt,box_size);
       }
-
       constraint.Shake(&system_water[3*i],box_size,dt);
     }
     SetGravityCenterForAtoms(system_water);

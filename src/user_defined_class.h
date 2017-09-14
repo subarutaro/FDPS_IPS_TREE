@@ -159,12 +159,14 @@ class MomentUnit{
     if(mass == 0.0) pos = 0.0;
     else            pos = pos / mass; // gravity center as a center of multipole expansion
   }
-  void accumulateAtLeaf(const EP& epj){
+  template<class Tepj>
+  void accumulateAtLeaf(const Tepj& epj){
     nptcl++;
     pos  += epj.getCharge()*epj.getPos();
     mass += epj.getCharge();
   }
-  void accumulateAtLeaf2(const EP& epj){
+  template <class Tepj>
+  void accumulateAtLeaf2(const Tepj& epj){
     const PS::F64vec r = epj.getPos() - pos;
     dipole += epj.getCharge() * r;
     quadrupole.xx += epj.getCharge() * r.x * r.x;
@@ -203,6 +205,13 @@ public:
   void init(){
     mass = 0.0;
     pos  = 0.0;
+  }
+
+  PS::F64 getCharge() const {
+    return mass;
+  }
+  PS::F64vec getPos() const {
+    return pos;
   }
 };
 
@@ -385,29 +394,15 @@ public:
 
 class SPJQuadrupoleSixPseudoParticleCutoff{
 public:
-  PS::F64    mass;
-  PS::F64vec pos;
-  PS::F64ort vtx;
-  MomentUnit positive;
-  MomentUnit negative;
-  PseudoParticle ppp[3]; // pseudo particle of positive charge
-  PseudoParticle ppn[3]; // pseudo particle of negative charge
-
+  PseudoParticle pp[6]; // pseudo particle of positive(3) and negative(3) charge
   void copyFromMoment(const MomentQuadrupoleSixPseudoParticleCutoff & mom){
-    mass = mom.mass;
-    pos = mom.getPos();
-    vtx = mom.getVertexOut();
-    positive = mom.positive;
-    negative = mom.negative;
-    GeneratePseudoParticles(ppp,positive);
-    GeneratePseudoParticles(ppn,negative);
-
+    GeneratePseudoParticles(pp  ,mom.positive);
+    GeneratePseudoParticles(pp+3,mom.negative);
 #ifdef IPS_TREE_PSEUDOPARTICLE_QUADRUPOLE_MOMENT_CHECK
     // check generated pseudo particle reproduce physical quadrupole moment
-    //if(positive.nptcl >= 3)
-      {
-      const PS::F64mat qm_ppp = CalcQuadrupoleMoment(CalcQuadrupole(ppp));
-      const PS::F64mat qm_mom = CalcQuadrupoleMoment(positive.quadrupole);
+    {
+      const PS::F64mat qm_ppp = CalcQuadrupoleMoment(CalcQuadrupole(pp));
+      const PS::F64mat qm_mom = CalcQuadrupoleMoment(mom.positive.quadrupole);
       printf("pseudo: %e %e %e %e %e %e\n",
 	     qm_ppp.xx, qm_ppp.yy, qm_ppp.zz,
 	     qm_ppp.xy, qm_ppp.xz, qm_ppp.yz);
@@ -421,10 +416,9 @@ public:
       assert(fabs(qm_mom.xz) < 1e-6 || fabs((qm_mom.xz-qm_ppp.xz)/qm_mom.xz) < 1e-6);
       assert(fabs(qm_mom.yz) < 1e-6 || fabs((qm_mom.yz-qm_ppp.yz)/qm_mom.yz) < 1e-6);
     }
-      //if(negative.nptcl >= 3)
-      {
-      const PS::F64mat qm_ppn = CalcQuadrupoleMoment(CalcQuadrupole(ppn));
-      const PS::F64mat qm_mom = CalcQuadrupoleMoment(negative.quadrupole);
+    {
+      const PS::F64mat qm_ppn = CalcQuadrupoleMoment(CalcQuadrupole(pp+3));
+      const PS::F64mat qm_mom = CalcQuadrupoleMoment(mom.negative.quadrupole);
       fprintf(stderr,
 	      "pseudo: %e %e %e %e %e %e\n",
 	      qm_ppn.xx, qm_ppn.yy, qm_ppn.zz,
@@ -442,56 +436,72 @@ public:
     }
 #endif
     for(int i=0;i<3;i++){
-      ppp[i].pos += positive.pos - pos;
-      ppn[i].pos += negative.pos - pos;
-#ifdef IPS_TREE_PSEUDOPARTICLE_DISTANCE_CHECK
-      printf("distance between cm and pp: %lf %lf\n",ppp[i].mass,sqrt(ppp[i].pos*ppp[i].pos));
-      printf("distance between cm and pp: %lf %lf\n",ppn[i].mass,sqrt(ppn[i].pos*ppn[i].pos));
-#endif
+      pp[i  ].pos += mom.positive.pos;
+      pp[i+3].pos += mom.negative.pos;
     }
   }
   void clear(){
-    pos  = 0.0;
-    mass = 0.0;
-
-    positive.init();
-    negative.init();
-    
-    ppp[0].init();
-    ppp[1].init();
-    ppp[2].init();
-
-    ppn[0].init();
-    ppn[1].init();
-    ppn[2].init();
-
-    vtx.init();
+    pp[0].init();
+    pp[1].init();
+    pp[2].init();
+    pp[3].init();
+    pp[4].init();
+    pp[5].init();
   }
 
   PS::F32vec getPos() const {
-    return pos;
+    PS::F64    mass = 0.0;
+    PS::F64vec pos  = 0.0;
+    for(int i=0;i<6;i++){
+      mass += fabs(pp[i].mass);
+      pos  += fabs(pp[i].mass)*pp[i].pos;
+    }    
+    return pos/mass;
   }
   void setPos(const PS::F64vec & pos_new) {
+    PS::F64    mass = 0.0;
+    PS::F64vec pos  = 0.0;
+    for(int i=0;i<6;i++){
+      mass += fabs(pp[i].mass);
+      pos  += fabs(pp[i].mass)*pp[i].pos;
+    }
+    pos = pos/mass;
+
     const PS::F64vec diff = pos_new - pos;
-    pos = pos_new;
-    if(positive.mass != 0.0) positive.pos += diff;
-    if(negative.mass != 0.0) negative.pos += diff;
+    for(int i=0;i<6;i++){
+      if(pp[i].mass != 0.0) pp[i].pos += diff;
+    }
   }
   MomentQuadrupoleSixPseudoParticleCutoff convertToMoment() const {
-    return MomentQuadrupoleSixPseudoParticleCutoff(mass,pos,positive, negative, vtx);
+    PS::F64    mass = 0.0;
+    PS::F64vec pos  = 0.0;
+    for(int i=0;i<6;i++){
+      mass += fabs(pp[i].mass);
+      pos  += fabs(pp[i].mass)*pp[i].pos;
+    }
+    pos = pos / mass;
+    MomentUnit positive,negative;
+    for(int i=0;i<3;i++){
+      positive.accumulateAtLeaf(pp[i]);
+      negative.accumulateAtLeaf(pp[i+3]);
+    }
+    positive.set();
+    negative.set();
+
+    PS::F64ort vtx; // dummy vertex
+    vtx.init();
+    /*
+    for(int i=0;i<6;i++){
+      vtx.merge(pp[i].pos);
+    }
+    //*/
+    return MomentQuadrupoleSixPseudoParticleCutoff(mass,pos,positive,negative,vtx);
   }
 
   void DebugPrint() const {
-    printf("mass pos: %lf %lf %lf %lf\n",mass,pos.x,pos.y,pos.z);
-    printf("positive: %lf %lf %lf %lf\n",positive.mass,positive.pos.x,positive.pos.y,positive.pos.z);
-    printf("negative: %lf %lf %lf %lf\n",negative.mass,negative.pos.x,negative.pos.y,negative.pos.z);
-    for(int k=0;k<3;k++){
-      printf("ppp[%d]: %lf %lf %lf %lf\n",k,ppp[k].mass,ppp[k].pos.x,ppp[k].pos.y,ppp[k].pos.z);
-      printf("ppn[%d]: %lf %lf %lf %lf\n",k,ppn[k].mass,ppn[k].pos.x,ppn[k].pos.y,ppn[k].pos.z);
+    for(int k=0;k<6;k++){
+      printf("pp[%d]: %lf %lf %lf %lf\n",k,pp[k].mass,pp[k].pos.x,pp[k].pos.y,pp[k].pos.z);
     }
-    printf("vtx: %lf %lf %lf %lf %lf %lf\n",
-	   vtx.low_.x,vtx.low_.y,vtx.low_.z,
-	   vtx.high_.x,vtx.high_.y,vtx.high_.z);
   }
 };
 #endif
