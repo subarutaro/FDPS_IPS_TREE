@@ -38,7 +38,7 @@ class Constraint{
   }
 
   template <class FP>
-  void Shake(FP *psys,const PS::F64vec cell_size,const PS::F64 dt){
+  void Shake(FP *psys,const PS::F64 dt){
     const PS::F64 dti = 1.0 / dt;
     PS::F64 max_error = 0.0;
     for(int iter=1;iter<=max_iteration;iter++){
@@ -73,7 +73,6 @@ class Constraint{
 
   template <class FP>
   void Rattle(FP *psys,
-	      const PS::F64vec cell_size,
 	      const PS::F64 dt){
     // iteration parameter
     const int max_iteration = 1000;

@@ -3,10 +3,10 @@
 //
 // MD simulation code for water molecules using IPS/Tree method
 //
-// Kentaro NOMURA 2017/mm/dd
+// Kentaro NOMURA 2017/09/20
 //
-// Known problem
-//
+// Known problem:
+// nothing
 
 #include<iostream>
 #include<fstream>
@@ -35,8 +35,6 @@ const PS::F64 alpha[10] = {
   13.9564907382725,
   -8.66620089071555
 };
-
-const int target = 0;
 
 struct CalcForceEpEp{
   const PS::F64 rc_lj,rc_cl;
@@ -110,8 +108,7 @@ struct CalcForceEpEp{
 	  flj  += (epsilon * (12.0*rs12_inv - 6.0*rs6_inv) * r2_inv) * rij;
 	}
       }
-      force[i].f_lj += flj;
-      force[i].f_coulomb += fcl;
+      force[i].acc += flj + fcl;
       force[i].pot += 0.5*poti;
     }
   }
@@ -151,7 +148,7 @@ struct CalcForceEpSp{
 	    const PS::F64 r2_inv = 1.0/r2;
 	    const PS::F64 r = sqrt(r2);
 	    const PS::F64 r_inv = r2_inv * r;
-	    const PS::F64 qq = charge_i * ep_j[j].pp[k].mass;
+	    const PS::F64 qq = charge_i * ep_j[j].pp[k].getCharge();
 	    PS::F64 rc = r * rc_inv;
 	    PS::F64 r2c2 = rc*rc;
 	    PS::F64 coef = (rc*rc - alpha[0]*alpha[0]);
@@ -177,75 +174,9 @@ struct CalcForceEpSp{
 	  }
 	}
       }
-      force[i].f_coulomb += fcl;
+      force[i].acc += fcl;
       force[i].pot += 0.5*poti;
     }
-  }
-};
-
-class ForceCalculator {
-public:
-#ifdef IPS_TREE_FORCE_ERROR_CHECK
-  PS::TreeForForceShort<Force, EP, EP>::Scatter tree_short;
-#endif
-  PS::TreeForForceLong
-  <Force, EP, EP,
-   MomentQuadrupoleSixPseudoParticleCutoff,
-   SPJQuadrupoleSixPseudoParticleCutoff>::WithCutoff tree_long;
-
-  // Methods for water simulation
-  template <class Tpsys>
-  void initialize(const Tpsys &system,const PS::F64 theta) {
-    PS::S32 numPtclLocal = system.getNumberOfParticleLocal();
-    PS::U64 ntot = 3 * numPtclLocal;
-#ifdef IPS_TREE_FORCE_ERROR_CHECK
-    tree_short.initialize(ntot,0.0);
-#endif
-    tree_long.initialize(ntot,theta);
-  };
-
-  template <class Tpsys,class Tdinfo>
-  void operator ()(Tpsys &system,Tdinfo &dinfo){
-    // cut off radii settings
-    const PS::F64 rcut_lj = 4.0*SIGMA_OXY;
-    const PS::F64 rcut_cl = 28.0; // 28 angstrom
-
-    // Reset potential and accelerations
-    for (PS::S32 i=0; i<system.getNumberOfParticleLocal(); i++) {
-      system[i].pot = 0.0;
-      system[i].acc = 0.0;
-      // search radius must be larger than rcut_cl and shold have enough margin
-      system[i].search_radius = 35.0;
-    }
-    tree_long.calcForceAll(CalcForceEpEp(rcut_lj,rcut_cl),
-			   CalcForceEpSp(rcut_cl),
-			   system, dinfo);
-    for (PS::S32 i=0; i<system.getNumberOfParticleLocal(); i++) {
-      Force result = tree_long.getForce(i);
-      system[i].pot += result.pot;
-      system[i].acc += result.f_lj + result.f_coulomb;
-    }
-#ifdef IPS_TREE_FORCE_ERROR_CHECK
-    tree_short.calcForceAll(CalcForceEpEp(rcut_lj,rcut_cl),
-			    system, dinfo);
-    PS::F64 error = 0.0;
-    for (PS::S32 i=0; i<system.getNumberOfParticleLocal(); i++) {
-      Force exact = tree_short.getForce(i);
-      const PS::F64vec acc = exact.f_lj + exact.f_coulomb;
-      const PS::F64vec diff = acc - system[i].acc;
-      printf("%d x %lf %lf\n",i,acc.x,fabs(diff.x/acc.x));
-      printf("%d y %lf %lf\n",i,acc.y,fabs(diff.y/acc.y));
-      printf("%d z %lf %lf\n",i,acc.z,fabs(diff.z/acc.z));
-
-      error += (diff.x/acc.x)*(diff.x/acc.x);
-      error += (diff.y/acc.y)*(diff.y/acc.y);
-      error += (diff.z/acc.z)*(diff.z/acc.z);
-    }
-    error /= 3.0 * system.getNumberOfParticleLocal();
-    error = sqrt(error);
-    fprintf(stderr,"error= %e\n",error);
-#endif
-    assert(system.getNumberOfParticleLocal()%3 == 0);
   }
 };
 
@@ -480,49 +411,27 @@ int main(int argc, char *argv[]){
   PS::F64 Tbegin = PS::GetWtime();
   std::cout<<std::setprecision(15);
   std::cerr<<std::setprecision(15);
+
   PS::F64 theta = 0.2;
-  const PS::S32 n_leaf_limit = 32;
-
-  long long int nmol  = 500;
-  PS::F64 density     = 0.997 * 1e3 / unit_density; // 997 kg/m^3
-  PS::F64 temperature = 80.0 / unit_temp;           // 80 K
-
   PS::F64 dt   = 2.0 * 1e-15 / unit_time; // 2 fs
+  PS::F64 temperature = 270.0 / unit_temp;
 
   PS::S32 n_group_limit = 64;
-  PS::S32 nstep      = 1000;
-  PS::S32 nstep_eq   = 1000;
-  PS::S32 nstep_snp  = 100;
-  PS::S32 nstep_diag = 100;
+  PS::S32 n_leaf_limit = 32;
 
-  //char sinput[1024];
+  PS::S32 nstep = 10;
   char dir_name[1024];
+
   int c;
   sprintf(dir_name,"./result");
-  while((c=getopt(argc,argv,"o:T:s:e:S:D:t:n:h")) != -1){
+  while((c=getopt(argc,argv,"o:s:t:n:h")) != -1){
     switch(c){
     case 'o':
       sprintf(dir_name,optarg);
       break;
-    case 'T':
-      temperature = atof(optarg) / unit_temp;
-      if(PS::Comm::getRank()==0) std::cerr<<"temperature="<< temperature << " = " << temperature*unit_temp << " K" << std::endl;
-      break;
     case 's':
       nstep = atoi(optarg);
       if(PS::Comm::getRank()==0)std::cerr<<"nstep="<<nstep<<std::endl;
-      break;
-    case 'e':
-      nstep_eq = atoi(optarg);
-      if(PS::Comm::getRank()==0)std::cerr<<"nstep_eq="<<nstep_eq<<std::endl;
-      break;
-    case 'S':
-      nstep_snp = atoi(optarg);
-      if(PS::Comm::getRank()==0)std::cerr<<"nstep_snp="<<nstep_snp<<std::endl;
-      break;
-    case 'D':
-      nstep_diag = atoi(optarg);
-      if(PS::Comm::getRank()==0)std::cerr<<"nstep_diag="<<nstep_diag<<std::endl;
       break;
     case 't':
       theta = atof(optarg);
@@ -534,22 +443,14 @@ int main(int argc, char *argv[]){
       break;
     case 'h':
       if(PS::Comm::getRank()==0){
-	std::cerr<<"N: n_tot (default: 1000)"<<std::endl;
-	std::cerr<<"d: number density (default: 1000 kg/m^3)"<<std::endl;
-	std::cerr<<"T: temperature (default: 300 K)"<<std::endl;
 	std::cerr<<"s: number of steps (default: 1000)"<<std::endl;
-	std::cerr<<"S: time step for snapshot(default: 100)"<<std::endl;
-	std::cerr<<"D: time step for diag(default: 100)"<<std::endl;
-	std::cerr<<"e: number of steps for equilibration(default: 1000)"<<std::endl;
 	std::cerr<<"o: dir name of output (default: ./result)"<<std::endl;
 	std::cerr<<"t: parameter for accuracy of force calculation (default: 0.2)"<<std::endl;
-	std::cerr<<"c: cutoff length (default: 15.0 angstrom)"<<std::endl;
 	std::cerr<<"n: n_group_limit (default: 64.0)"<<std::endl;
       }
       return 0;
     }
   }
-  long long int n_tot = nmol;
 
   struct stat st;
   if(stat(dir_name, &st) != 0) {
@@ -584,7 +485,6 @@ int main(int argc, char *argv[]){
   PS::ParticleSystem<FP> system_water;
   system_water.initialize();
 
-  PS::S32 n_grav_glb = n_tot;
   PS::F64vec box_size;
   MakeIceLattice(system_water,box_size);
 
@@ -601,60 +501,40 @@ int main(int argc, char *argv[]){
   Constraint constraint;
   for(int i=0;i<system_water.getNumberOfParticleLocal()/3;i++){
     for(int j=0;j<3;j++) system_water[3*i+j].KeepCurrentPos();
-    constraint.Shake(&system_water[3*i],box_size,dt);
-    constraint.Rattle(&system_water[3*i],box_size,dt);
+    constraint.Shake(&system_water[3*i] ,dt);
+    constraint.Rattle(&system_water[3*i],dt);
   }
 
   dinfo.collectSampleParticle(system_water);
   dinfo.decomposeDomain();
   system_water.exchangeParticle(dinfo);
 
-  ForceCalculator ips_tree;
-  ips_tree.initialize(system_water,theta);
-  ips_tree(system_water,dinfo);
+  PS::TreeForForceLong<Force, EP, EP, MomentQuadrupole, SPJQuadrupole>::WithCutoff ips_tree;
+  const PS::F64 rcut_lj = 4.0*SIGMA_OXY;
+  const PS::F64 rcut_cl = 28.0; // 28 angstrom
+  for(int i=0;i<system_water.getNumberOfParticleLocal();i++)
+    system_water[i].search_radius = rcut_cl*1.2;
+  ips_tree.initialize(system_water.getNumberOfParticleLocal(),theta);
+  ips_tree.calcForceAllAndWriteBack(CalcForceEpEp(rcut_lj,rcut_cl),
+				    CalcForceEpSp(rcut_cl),
+				    system_water,dinfo);
 
-  PS::F64 Epot0, Ekin0, Etot0, Epot1, Ekin1, Etot1;
   ScaleVelocity(system_water,temperature);
+  
+  PS::F64 Epot0, Ekin0, Etot0, Epot1, Ekin1, Etot1;
   CalcEnergy(system_water, Etot0, Ekin0, Epot0);
   if(PS::Comm::getRank() == 0) fprintf(stdout,"Etot = %lf, Epot = %lf, Ekin = %lf\n",Etot0,Epot0,Ekin0);
-  PS::F64 Tloop = 0.0;
 
-  PS::S32 snp_id = 0;
-  PS::S32 time_snp = 0;
-  PS::S32 time_diag = 0;
-  PS::F64 time_sys = -dt * nstep_eq;
-  bool isInitialized = false;
-
-  PS::F64 Epot_ave = 0.0, Ekin_ave = 0.0;
-  int n_loc = system_water.getNumberOfParticleLocal();
-  const PS::S32 nstep_em = 0.5 * nstep_eq;
-
+  PS::F64 time_sys = 0.0;
   // Main roop
-  for(int s=-nstep_eq;s<nstep;s++){
-    if(s < 0) ScaleVelocity(system_water,temperature);
-    if(s%1000==0) RemoveTotalMomentum(system_water);
-
-    if(s == time_snp){
-      FileHeader header(box_size);
-      char filename[256];
-      sprintf(filename, "%s/%04d.cdv", dir_name, snp_id++);
-      system_water.writeParticleAscii(filename, header);
-      time_snp += nstep_snp;
-    }
-
-    if(!isInitialized && s == 0){
-      CalcEnergy(system_water, Etot0, Ekin0, Epot0);
-      if(PS::Comm::getRank() == 0) printf("Etot0 = %lf, Epot0 = %lf, Ekin0 = %lf\n",Etot0,Epot0,Ekin0);
-      isInitialized = true;
-    }
-
+  for(int s=0;s<nstep;s++){
     for(int i=0;i<system_water.getNumberOfParticleLocal()/3;i++){
       for(int j=0;j<3;j++){
 	system_water[3*i+j].KeepCurrentPos();
 	system_water[3*i+j].IntegrateVel(0.5*dt);
 	system_water[3*i+j].IntegratePos(dt,box_size);
       }
-      constraint.Shake(&system_water[3*i],box_size,dt);
+      constraint.Shake(&system_water[3*i],dt);
     }
     SetGravityCenterForAtoms(system_water);
     PeriodicBoundaryCondition(system_water,dinfo);
@@ -663,28 +543,21 @@ int main(int argc, char *argv[]){
       dinfo.decomposeDomain();
     }
     system_water.exchangeParticle(dinfo);
-    assert(system_water.getNumberOfParticleLocal()%3 == 0);
 
-    ips_tree(system_water, dinfo);
+    ips_tree.calcForceAllAndWriteBack(CalcForceEpEp(rcut_lj,rcut_cl),
+				      CalcForceEpSp(rcut_cl),
+				      system_water, dinfo);
 
-    for(int i=0;i<system_water.getNumberOfParticleLocal();i++){
-      system_water[i].IntegrateVel(0.5*dt);
-    }
     for(int i=0;i<system_water.getNumberOfParticleLocal()/3;i++){
-      constraint.Rattle(&system_water[3*i],box_size,dt);
+      for(int j=0;j<3;j++) system_water[3*i+j].IntegrateVel(0.5*dt);
+      constraint.Rattle(&system_water[3*i],dt);
     }
+
     CalcEnergy(system_water, Etot1, Ekin1, Epot1);
-    if(s>=0){
-      Epot_ave += Epot1;
-      Ekin_ave += Ekin1;
-    }
-    if(s == time_diag) {
-      if(PS::Comm::getRank() == 0){
-	fout_eng<<time_sys<<"   "<< " " << Epot1 << " " << Ekin1 << " " <<(Etot1-Etot0)/Etot0<<std::endl;
-	fprintf(stderr, "%10.7f %lf %lf %+e\n",
-		time_sys, Epot1, Ekin1, (Etot1 - Etot0) / Etot0);
-	time_diag += nstep_diag;
-      }
+    if(PS::Comm::getRank() == 0){
+      fout_eng<<time_sys<<"   "<< " " << Epot1 << " " << Ekin1 << " " <<(Etot1-Etot0)/Etot0<<std::endl;
+      fprintf(stderr, "%10.7f %lf %lf %+e\n",
+	      time_sys, Epot1, Ekin1, (Etot1 - Etot0) / Etot0);
     }
     time_sys += dt;
   }
