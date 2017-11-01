@@ -62,7 +62,8 @@ struct CalcForceEpEp{
       const PS::F64vec ri = ep_i[i].pos;
       PS::F64vec flj = 0.0;
       PS::F64vec fcl = 0.0;
-      PS::F64 poti = 0.0;
+      PS::F64 plj = 0.0;
+      PS::F64 pcl = 0.0;
       const PS::S64 idi = ep_i[i].id;
       const PS::F64 sigma_i   = ep_i[i].sigma;
       const PS::F64 epsilon_i = ep_i[i].epsilon;
@@ -97,8 +98,8 @@ struct CalcForceEpEp{
 				    (12.0*alpha[6] + r2c2*
 				     (14.0*alpha[7] + r2c2*
 				      (16.0*alpha[8] + (18.0*alpha[9] * r2c2)))))))));
-	  poti += qq * (r_inv - 0.5*rc_inv * coef * coef2 * utmp - bound_ele_pot);
-	  fcl  += qq * (r2_inv*r_inv + 0.5*rc3_inv*coef2*(6.0*utmp + coef*ftmp))*rij;
+	  pcl += qq * (r_inv - 0.5*rc_inv * coef * coef2 * utmp - bound_ele_pot);
+	  fcl += qq * (r2_inv*r_inv + 0.5*rc3_inv*coef2*(6.0*utmp + coef*ftmp))*rij;
 	}
 	if (0.0 < r2 && r2 <= rc_lj_sq) {
 	  const PS::F64 sigma    = 0.5*(sigma_i + ep_j[j].sigma);
@@ -106,13 +107,14 @@ struct CalcForceEpEp{
 	  const PS::F64 rs2_inv  = sigma*sigma * r2_inv;
 	  const PS::F64 rs6_inv  = rs2_inv * rs2_inv * rs2_inv;
 	  const PS::F64 rs12_inv = rs6_inv * rs6_inv;
-	  poti += epsilon * (rs12_inv - rs6_inv);
-	  flj  += (epsilon * (12.0*rs12_inv - 6.0*rs6_inv) * r2_inv) * rij;
+	  plj += epsilon * (rs12_inv - rs6_inv);
+	  flj += (epsilon * (12.0*rs12_inv - 6.0*rs6_inv) * r2_inv) * rij;
 	}
       }
       force[i].f_lj += flj;
-      force[i].f_coulomb += fcl;
-      force[i].pot += 0.5*poti;
+      force[i].f_cl += fcl;
+      force[i].p_lj += 0.5*plj;
+      force[i].p_cl += 0.5*pcl;
     }
   }
 };
@@ -138,9 +140,8 @@ struct CalcForceEpSp{
     for(PS::S32 i=0; i<n_ip; i++){
       const PS::F64vec ri = ep_i[i].pos;
       //PS::F64vec ai = 0.0;
-      PS::F64vec flj = 0.0;
       PS::F64vec fcl = 0.0;
-      PS::F64 poti = 0.0;
+      PS::F64 pcl = 0.0;
       const PS::S64 idi = ep_i[i].id;
       const PS::F64 charge_i  = ep_i[i].charge;
       for(PS::S32 j=0; j<n_jp; j++){
@@ -172,13 +173,13 @@ struct CalcForceEpSp{
 				      (12.0*alpha[6] + r2c2*
 				       (14.0*alpha[7] + r2c2*
 					(16.0*alpha[8] + (18.0*alpha[9] * r2c2)))))))));
-	    poti += qq * (r_inv - 0.5*rc_inv * coef * coef2 * utmp - bound_ele_pot);
+	    pcl += qq * (r_inv - 0.5*rc_inv * coef * coef2 * utmp - bound_ele_pot);
 	    fcl  += qq * (r2_inv*r_inv + 0.5*rc3_inv*coef2*(6.0*utmp + coef*ftmp))*rij;
 	  }
 	}
       }
-      force[i].f_coulomb += fcl;
-      force[i].pot += 0.5*poti;
+      force[i].f_cl += fcl;
+      force[i].p_cl += 0.5*pcl;
     }
   }
 };
@@ -212,7 +213,8 @@ public:
 
     // Reset potential and accelerations
     for (PS::S32 i=0; i<system.getNumberOfParticleLocal(); i++) {
-      system[i].pot = 0.0;
+      system[i].p_lj = 0.0;
+      system[i].p_cl = 0.0;
       system[i].acc = 0.0;
       // search radius must be larger than rcut_cl and shold have enough margin
       system[i].search_radius = 35.0;
@@ -222,8 +224,9 @@ public:
 			   system, dinfo);
     for (PS::S32 i=0; i<system.getNumberOfParticleLocal(); i++) {
       Force result = tree_long.getForce(i);
-      system[i].pot += result.pot;
-      system[i].acc += result.f_lj + result.f_coulomb;
+      system[i].p_lj += result.p_lj;
+      system[i].p_cl += result.p_cl;
+      system[i].acc += result.f_lj + result.f_cl;
     }
 #ifdef IPS_TREE_FORCE_ERROR_CHECK
     tree_short.calcForceAll(CalcForceEpEp(rcut_lj,rcut_cl),
@@ -231,7 +234,7 @@ public:
     PS::F64 error = 0.0;
     for (PS::S32 i=0; i<system.getNumberOfParticleLocal(); i++) {
       Force exact = tree_short.getForce(i);
-      const PS::F64vec acc = exact.f_lj + exact.f_coulomb;
+      const PS::F64vec acc = exact.f_lj + exact.f_cl;
       const PS::F64vec diff = acc - system[i].acc;
       printf("%d x %lf %lf\n",i,acc.x,fabs(diff.x/acc.x));
       printf("%d y %lf %lf\n",i,acc.y,fabs(diff.y/acc.y));
@@ -433,27 +436,32 @@ template<class Tpsys>
 void CalcEnergy(const Tpsys & system,
                 PS::F64 & etot,
                 PS::F64 & ekin,
-                PS::F64 & epot,
+                PS::F64 & elj,
+		PS::F64 & ecl,
                 const bool clear=true){
   if(clear){
-    etot = ekin = epot = 0.0;
+    etot = ekin = elj = ecl = 0.0;
   }
   PS::F64 ekin_loc = 0.0;
-  PS::F64 epot_loc = 0.0;
+  PS::F64 elj_loc = 0.0;
+  PS::F64 ecl_loc = 0.0;
   const PS::S32 nbody = system.getNumberOfParticleLocal();
   for(PS::S32 i=0; i<nbody; i++){
     ekin_loc += system[i].mass * (system[i].vel * system[i].vel);
-    epot_loc += system[i].pot;
+    elj_loc += system[i].p_lj;
+    ecl_loc += system[i].p_cl;
   }
   ekin_loc *= 0.5;
 #ifdef PARTICLE_SIMULATOR_MPI_PARALLEL
-  MPI::COMM_WORLD.Allreduce(&epot_loc, &epot, 1, PS::GetDataType<PS::F64>(), MPI::SUM);
+  MPI::COMM_WORLD.Allreduce(&elj_loc, &elj, 1, PS::GetDataType<PS::F64>(), MPI::SUM);
+  MPI::COMM_WORLD.Allreduce(&ecl_loc, &ecl, 1, PS::GetDataType<PS::F64>(), MPI::SUM);
   MPI::COMM_WORLD.Allreduce(&ekin_loc, &ekin, 1, PS::GetDataType<PS::F64>(), MPI::SUM);
 #else
-  epot = epot_loc;
+  elj = elj_loc;
+  ecl = ecl_loc;
   ekin = ekin_loc;
 #endif
-  etot = epot + ekin;
+  etot = elj + ecl + ekin;
 }
 
 template<class Tpsys>
@@ -613,10 +621,10 @@ int main(int argc, char *argv[]){
   ips_tree.initialize(system_water,theta);
   ips_tree(system_water,dinfo);
 
-  PS::F64 Epot0, Ekin0, Etot0, Epot1, Ekin1, Etot1;
+  PS::F64 ELJ0, Ecl0, Ekin0, Etot0, ELJ1, Ecl1, Ekin1, Etot1;
   ScaleVelocity(system_water,temperature);
-  CalcEnergy(system_water, Etot0, Ekin0, Epot0);
-  if(PS::Comm::getRank() == 0) fprintf(stdout,"Etot = %lf, Epot = %lf, Ekin = %lf\n",Etot0,Epot0,Ekin0);
+  CalcEnergy(system_water, Etot0, Ekin0, ELJ0, Ecl0);
+  if(PS::Comm::getRank() == 0) fprintf(stdout,"Etot = %lf, ELJ = %lf, Ecl = %lf, Ekin = %lf\n",Etot0,ELJ0,Ecl0,Ekin0);
   PS::F64 Tloop = 0.0;
 
   PS::S32 snp_id = 0;
@@ -625,7 +633,7 @@ int main(int argc, char *argv[]){
   PS::F64 time_sys = -dt * nstep_eq;
   bool isInitialized = false;
 
-  PS::F64 Epot_ave = 0.0, Ekin_ave = 0.0;
+  PS::F64 ELJ_ave = 0.0, Ecl_ave = 0.0, Ekin_ave = 0.0;
   int n_loc = system_water.getNumberOfParticleLocal();
   const PS::S32 nstep_em = 0.5 * nstep_eq;
 
@@ -643,8 +651,8 @@ int main(int argc, char *argv[]){
     }
 
     if(!isInitialized && s == 0){
-      CalcEnergy(system_water, Etot0, Ekin0, Epot0);
-      if(PS::Comm::getRank() == 0) printf("Etot0 = %lf, Epot0 = %lf, Ekin0 = %lf\n",Etot0,Epot0,Ekin0);
+      CalcEnergy(system_water, Etot0, Ekin0, ELJ0, Ecl0);
+      if(PS::Comm::getRank() == 0) printf("Etot0 = %lf, ELJ0 = %lf, Ecl0 = %lf, Ekin0 = %lf\n",Etot0,ELJ0,Ecl0,Ekin0);
       isInitialized = true;
     }
 
@@ -673,16 +681,17 @@ int main(int argc, char *argv[]){
     for(int i=0;i<system_water.getNumberOfParticleLocal()/3;i++){
       constraint.Rattle(&system_water[3*i],box_size,dt);
     }
-    CalcEnergy(system_water, Etot1, Ekin1, Epot1);
+    CalcEnergy(system_water, Etot1, Ekin1, ELJ1, Ecl1);
     if(s>=0){
-      Epot_ave += Epot1;
+      ELJ_ave += ELJ1;
+      Ecl_ave += Ecl1;
       Ekin_ave += Ekin1;
     }
     if(s == time_diag) {
       if(PS::Comm::getRank() == 0){
-	fout_eng<<time_sys<<"   "<< " " << Epot1 << " " << Ekin1 << " " <<(Etot1-Etot0)/Etot0<<std::endl;
-	fprintf(stderr, "%10.7f %lf %lf %+e\n",
-		time_sys, Epot1, Ekin1, (Etot1 - Etot0) / Etot0);
+	fout_eng<<time_sys<<"   "<< " " << ELJ1 << " " << Ecl1 << " " << Ekin1 << " " <<(Etot1-Etot0)/Etot0<<std::endl;
+	fprintf(stderr, "%10.7f %lf %lf %lf %+e\n",
+		time_sys, ELJ1, Ecl1, Ekin1, (Etot1 - Etot0) / Etot0);
 	time_diag += nstep_diag;
       }
     }

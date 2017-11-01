@@ -22,12 +22,14 @@ public:
 class Force{
 public:
   PS::F64vec3 f_lj;
-  PS::F64vec3 f_coulomb;
-  PS::F64 pot;
+  PS::F64vec3 f_cl;
+  PS::F64 p_lj;
+  PS::F64 p_cl;
   void clear(){
     f_lj = 0.0;
-    f_coulomb = 0.0;
-    pot = 0.0;
+    f_cl = 0.0;
+    p_lj = 0.0;
+    p_cl = 0.0;
   }
 };
 
@@ -44,14 +46,14 @@ public:
   PS::F64vec3 vel;
 
   PS::F64vec3 acc;
-  PS::F64vec3 force_long;
 
   PS::F64 mass;
   PS::F64 sigma;
   PS::F64 epsilon;
   PS::F64 charge;
 
-  PS::F64 pot;
+  PS::F64 p_lj;
+  PS::F64 p_cl;
 
   PS::F64 search_radius;
 
@@ -65,10 +67,10 @@ public:
   }
 
   void copyFromForce(const Force& force){
-    acc = force.f_lj + force.f_coulomb;
-    pot = force.pot;
+    acc = force.f_lj + force.f_cl;
+    p_lj = force.p_lj;
+    p_cl = force.p_cl;
   }
-
 
   void writeAscii(FILE* fp) const{
     fprintf(fp, "%lld %lld %lf %lf %lf\n",
