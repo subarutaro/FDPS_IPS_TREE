@@ -1,6 +1,9 @@
 #ifndef H_USER_DEFINED_CLASS
 #define H_USER_DEFINED_CLASS
 
+#include "water_params.h"
+
+
 class FileHeader{
 public:
   const PS::F64vec cell_size;
@@ -58,7 +61,7 @@ public:
   PS::F64vec prev_pos; // for RATTLE
 
   PS::F64 getRsearch() const {
-    return this->search_radius;
+    return search_radius;
   }
   PS::F64vec getPos() const {
     return gpos;
@@ -105,11 +108,10 @@ public:
   PS::F64 charge;
 
   PS::F64 search_radius;
-  PS::F64 getRSearch() const {
-    return search_radius;
-  }
-  PS::F64vec getPos() const { return pos;}
-  PS::F64    getCharge() const {return charge;}
+
+  PS::F64    getRSearch() const {return search_radius;}
+  PS::F64vec getPos()     const {return pos;}
+  PS::F64    getCharge()  const {return charge;}
   void copyFromFP(const FP & fp){
     pos     = fp.pos;
     id      = fp.id;
@@ -129,69 +131,7 @@ public:
 // Moment and Superparticle class for IPS/Tree
 //==================================
 
-class MomentUnit{
- public:
-  PS::S32    nptcl;
-  PS::F64vec pos;
-  PS::F64    mass;
-  PS::F64vec dipole;
-  PS::F64mat quadrupole;
-
-  MomentUnit(){
-    init();
-  }
-  MomentUnit(const MomentUnit& m){
-    nptcl      = m.nptcl;
-    pos        = m.pos;
-    mass       = m.mass;
-    dipole     = m.dipole;
-    quadrupole = m.quadrupole;
-  }
-
-  void init(){
-    nptcl      = 0;
-    pos        = 0.0;
-    mass       = 0.0;
-    dipole     = 0.0;
-    quadrupole = 0.0;
-  }
-  void set(){
-    if(mass == 0.0) pos = 0.0;
-    else            pos = pos / mass; // gravity center as a center of multipole expansion
-  }
-  template<class Tepj>
-  void accumulateAtLeaf(const Tepj& epj){
-    nptcl++;
-    pos  += epj.getCharge()*epj.getPos();
-    mass += epj.getCharge();
-  }
-  template <class Tepj>
-  void accumulateAtLeaf2(const Tepj& epj){
-    const PS::F64vec r = epj.getPos() - pos;
-    dipole += epj.getCharge() * r;
-    quadrupole.xx += epj.getCharge() * r.x * r.x;
-    quadrupole.yy += epj.getCharge() * r.y * r.y;
-    quadrupole.zz += epj.getCharge() * r.z * r.z;
-    quadrupole.xy += epj.getCharge() * r.x * r.y;
-    quadrupole.xz += epj.getCharge() * r.x * r.z;
-    quadrupole.yz += epj.getCharge() * r.y * r.z;
-  }
-  void accumulate(const MomentUnit& m){
-    nptcl += m.nptcl;
-    pos   += m.mass * m.pos;
-    mass  += m.mass;
-  }
-  void accumulate2(const MomentUnit& m){
-    const PS::F64vec r = m.pos - pos;
-    dipole += m.dipole - m.mass * r;
-    quadrupole.xx += m.quadrupole.xx - 2.0 * m.dipole.x * r.x + m.mass * r.x * r.x;
-    quadrupole.yy += m.quadrupole.yy - 2.0 * m.dipole.y * r.y + m.mass * r.y * r.y;
-    quadrupole.zz += m.quadrupole.zz - 2.0 * m.dipole.z * r.z + m.mass * r.z * r.z;
-    quadrupole.xy += m.quadrupole.xy - (m.dipole.x*r.y + m.dipole.y*r.x) + m.mass * r.x * r.y;
-    quadrupole.xz += m.quadrupole.xz - (m.dipole.x*r.z + m.dipole.z*r.x) + m.mass * r.x * r.z;
-    quadrupole.yz += m.quadrupole.yz - (m.dipole.y*r.z + m.dipole.z*r.y) + m.mass * r.y * r.z;
-  }
-};
+#define N_PSEUDOPARTICLE 4
 
 class PseudoParticle{
 public:
@@ -207,33 +147,192 @@ public:
     pos  = 0.0;
   }
 
-  PS::F64 getCharge() const {
-    return mass;
-  }
   PS::F64vec getPos() const {
     return pos;
   }
+  PS::F64 getCharge() const {
+    return mass;
+  }
+  PS::F64 getRSearch() const {
+    //return 35.0;
+    return 40.0;
+    //return 50.0;
+  }
 };
 
-extern "C"
-int dsyev_
-(const char *jobz,const char *uplo,
- int *n, double *a, int *lda,
- double *w, double *work, int *lwork, int *info);
+const PS::F64mat3asym mul(const PS::F64mat3asym& lhs,const PS::F64mat3asym& rhs){
+  return PS::F64mat3asym(PS::F64vec(lhs.xx,lhs.xy,lhs.xz) * PS::F64vec(rhs.xx,rhs.yx,rhs.zx),
+			 PS::F64vec(lhs.xx,lhs.xy,lhs.xz) * PS::F64vec(rhs.xy,rhs.yy,rhs.zy),
+			 PS::F64vec(lhs.xx,lhs.xy,lhs.xz) * PS::F64vec(rhs.xz,rhs.yz,rhs.zz),
 
-void calc_eigen_value(const PS::F64mat &quadrupole,double w[3],double A[9]){
-  A[0]=quadrupole.xx; A[1]=quadrupole.xy; A[2]=quadrupole.xz;
-  A[3]=quadrupole.xy; A[4]=quadrupole.yy; A[5]=quadrupole.yz;
-  A[6]=quadrupole.xz; A[7]=quadrupole.yz; A[8]=quadrupole.zz;
-  int n = 3;
-  double work;
-  int lwork=-1,info;
-  dsyev_("V","U",&n,A,&n,w,&work,&lwork,&info);
-  assert(info == 0);
-  lwork = (int) work;
-  double work2[lwork>1 ? lwork:1];
-  dsyev_("V","L",&n,A,&n,w,work2,&lwork,&info);
-  assert(info == 0);
+			 PS::F64vec(lhs.yx,lhs.yy,lhs.yz) * PS::F64vec(rhs.xx,rhs.yx,rhs.zx),
+			 PS::F64vec(lhs.yx,lhs.yy,lhs.yz) * PS::F64vec(rhs.xy,rhs.yy,rhs.zy),
+			 PS::F64vec(lhs.yx,lhs.yy,lhs.yz) * PS::F64vec(rhs.xz,rhs.yz,rhs.zz),
+
+			 PS::F64vec(lhs.zx,lhs.zy,lhs.zz) * PS::F64vec(rhs.xx,rhs.yx,rhs.zx),
+			 PS::F64vec(lhs.zx,lhs.zy,lhs.zz) * PS::F64vec(rhs.xy,rhs.yy,rhs.zy),
+			 PS::F64vec(lhs.zx,lhs.zy,lhs.zz) * PS::F64vec(rhs.xz,rhs.yz,rhs.zz));
+}
+
+const PS::F64mat3asym trans(const PS::F64mat3asym& m){
+  return PS::F64mat3asym(m.xx,m.yx,m.zx,
+			 m.xy,m.yy,m.zy,
+			 m.xz,m.yz,m.zz);
+}
+
+#define JACOBI_NO_TRIANGLE_FUNCTION
+inline void Jacobi3x3(const PS::F64mat &A, PS::F64 lambda[3], PS::F64 U[9]){
+  const PS::F64 eps = 1e-8;
+  PS::F64mat3 A0 = A;
+  PS::F64mat3 A1 = A;
+  PS::F64mat3asym U0(1.0,0.0,0.0,
+		     0.0,1.0,0.0,
+		     0.0,0.0,1.0);
+  PS::F64mat3asym U1 = U0;
+  PS::F64 theta,cs,sn,cs2,sn2,cssn,a,b,c;
+
+  PS::F64 max = 1.0;
+  PS::S32 count = 0;
+  //while(max > eps){
+#pragma unroll 4
+  for(int i=0;i<4;i++){
+#ifdef JACOBI_NO_TRIANGLE_FUNCTION
+      a = 0.5*(A0.xx - A0.yy);
+      b = A0.xy;
+      c = fabs(b)<eps ? 1.0 : fabs(a) / sqrt(a*a + b*b);
+      sn = sqrt(0.5 - 0.5*c) * (a*b<0.0 ? -1.0 : 1.0);
+      cs = sqrt(0.5 + 0.5*c);
+#else
+      if(fabs(A0.xx-A0.yy)<eps) theta = 0.25*M_PI;
+      else                      theta = 0.5*atan(2.0*A0.xy / (A0.xx - A0.yy));
+      cs = cos(theta); sn = sin(theta);
+#endif
+      cs2 = cs*cs; sn2 = sn*sn; cssn = cs*sn;
+      A1.xx = A0.xx*cs2 + 2.0*A0.xy*cssn + A0.yy*sn2;
+      A1.yy = A0.yy*cs2 - 2.0*A0.xy*cssn + A0.xx*sn2;
+      //A1.zz = A0.zz;
+      A1.xy = A1.xy = A0.xy*(cs2-sn2) + (A0.yy-A0.xx)*cssn;
+      A1.xz = A0.xz*cs + A0.yz*sn;
+      A1.yz = A0.yz*cs - A0.xz*sn;
+      A0 = A1;
+
+      U1.xx = U0.xx*cs + U0.xy*sn;
+      U1.xy = U0.xy*cs - U0.xx*sn;
+      //U1.xz = U0.xz;
+      U1.yx = U0.yx*cs + U0.yy*sn;
+      U1.yy = U0.yy*cs - U0.yx*sn;
+      //U1.yz = U0.yz;
+      U1.zx = U0.zx*cs + U0.zy*sn;
+      U1.zy = U0.zy*cs - U0.zx*sn;
+      //U1.zz = U0.zz;
+      U0 = U1;
+
+#ifdef JACOBI_NO_TRIANGLE_FUNCTION
+      a = 0.5*(A0.yy - A0.zz);
+      b = A0.yz;
+      c = fabs(b)<eps ? 1.0 : fabs(a) / sqrt(a*a + b*b);
+      sn = sqrt(0.5 - 0.5*c) * (a*b<0.0 ? -1.0 : 1.0);
+      cs = sqrt(0.5 + 0.5*c);
+#else
+      if(fabs(A0.yy-A0.zz)<eps) theta = 0.25*M_PI;
+      else                      theta = 0.5*atan(2.0*A0.yz / (A0.yy - A0.zz));
+      cs = cos(theta); sn = sin(theta);
+#endif
+      cs2 = cs*cs; sn2 = sn*sn; cssn = cs*sn;
+      //A1.xx = A0.xx
+      A1.yy = A0.yy*cs2 + 2.0*A0.yz*cssn + A0.zz*sn2;
+      A1.zz = A0.zz*cs2 - 2.0*A0.yz*cssn + A0.yy*sn2;
+      A1.xy = A0.xy*cs + A0.xz*sn;
+      A1.xz = A0.xz*cs - A0.xy*sn;
+      A1.yz = A0.yz*(cs2 - sn2) + (A0.zz - A0.yy)*cssn;
+      A0 = A1;
+
+      //U1.xx = U0.xx;
+      U1.xy = U0.xy*cs + U0.xz*sn;
+      U1.xz = U0.xz*cs - U0.xy*sn;
+      //U1.yx = U0.yx;
+      U1.yy = U0.yy*cs + U0.yz*sn;
+      U1.yz = U0.yz*cs - U0.yy*sn;
+      //U1.zx = U0.zx;
+      U1.zy = U0.zy*cs + U0.zz*sn;
+      U1.zz = U0.zz*cs - U0.zy*sn;
+      U0 = U1;
+
+#ifdef JACOBI_NO_TRIANGLE_FUNCTION
+      a = 0.5*(A0.xx - A0.zz);
+      b = A0.xz;
+      c = fabs(b)<eps ? 1.0 : fabs(a) / sqrt(a*a + b*b);
+      sn = sqrt(0.5 - 0.5*c) * (a*b<0.0 ? -1.0 : 1.0);
+      cs = sqrt(0.5 + 0.5*c);
+#else
+      if(fabs(A0.xx-A0.zz)<eps) theta = 0.25*M_PI;
+      else                      theta = 0.5*atan(2.0*A0.xz / (A0.xx - A0.zz));
+      cs = cos(theta); sn = sin(theta);
+#endif
+      cs2 = cs*cs; sn2 = sn*sn; cssn = cs*sn;
+      A1.xx = A0.xx*cs2 + 2.0*A0.xz*cssn + A0.zz*sn2;
+      //A1.yy = A0.yy;
+      A1.zz = A0.zz*cs2 - 2.0*A0.xz*cssn + A0.xx*sn2;
+      A1.xy = A0.xy*cs + A0.yz*sn;
+      A1.xz = A0.xz*(cs2-sn2) + (A0.zz - A0.xx)*cssn;
+      A1.yz = A0.yz*cs - A0.xy*sn;
+      A0 = A1;
+
+      U1.xx = U0.xx*cs + U0.xz*sn;
+      //U1.xy =  U0.xy
+      U1.xz = U0.xz*cs - U0.xx*sn;
+      U1.yx = U0.yx*cs + U0.yz*sn;
+      //U1.yy =  U0.yy*cs + U0.yz*sn;
+      U1.yz = U0.yz*cs - U0.yx*sn;
+      U1.zx = U0.zx*cs + U0.zz*sn;
+      //U1.zy =  U0.zy*cs + U0.zz*sn;
+      U1.zz = U0.zz*cs - U0.zx*sn;
+      U0 = U1;
+
+    max = std::max(fabs(A0.xy),std::max(fabs(A0.yz),fabs(A0.xz)));
+  }
+  // normalize eigenvector
+#if 0
+  printf("A0:(count = %d)\n",count);
+  printf("%e %e %e\n",A0.xx,A0.xy,A0.xz);
+  printf("%e %e %e\n",A0.yx,A0.yy,A0.yz);
+  printf("%e %e %e\n",A0.zx,A0.zy,A0.zz);
+#endif
+  PS::F64 evl[3] = {A0.xx,A0.yy,A0.zz};
+  PS::F64vec evc[3];
+  evc[0] = PS::F64vec(U0.xx,U0.yx,U0.zx);
+  evc[1] = PS::F64vec(U0.xy,U0.yy,U0.zy);
+  evc[2] = PS::F64vec(U0.xz,U0.yz,U0.zz);
+#if 0
+  printf("eingenvalue:\n");
+  printf("%e %e %e\n",evl[0],evl[1],evl[2]);
+  printf("eingenvectors:\n");
+  printf("%e %e %e\n",evc[0][0],evc[0][1],evc[0][2]);
+  printf("%e %e %e\n",evc[1][0],evc[1][1],evc[1][2]);
+  printf("%e %e %e\n",evc[2][0],evc[2][1],evc[2][2]);
+  printf("check: %e %e %e\n",evc[0]*evc[1],evc[0]*evc[2],evc[1]*evc[2]);
+#endif
+  evc[0] = evc[0] / sqrt(evc[0]*evc[0]);
+  evc[1] = evc[1] / sqrt(evc[1]*evc[1]);
+  evc[2] = evc[2] / sqrt(evc[2]*evc[2]);
+  // rearrange eigenvalues in ascending order
+  if(evl[0]>evl[1]){
+    std::swap(evl[0],evl[1]);
+    std::swap(evc[0],evc[1]);
+  }
+  if(evl[0]>evl[2]){
+    std::swap(evl[0],evl[2]);
+    std::swap(evc[0],evc[2]);
+  }
+  if(evl[1]>evl[2]){
+    std::swap(evl[1],evl[2]);
+    std::swap(evc[1],evc[2]);
+  }
+  for(int i=0;i<3;i++){
+    lambda[i] = evl[i];
+    for(int j=0;j<3;j++)
+      U[3*i+j] = evc[i][j];
+  }
 }
 
 PS::F64mat CalcQuadrupoleMoment(const PS::F64mat &quad){
@@ -250,9 +349,9 @@ PS::F64mat CalcQuadrupoleMoment(const PS::F64mat &quad){
   return qmom;
 }
 
-PS::F64mat CalcQuadrupole(const PseudoParticle pp[3]){
+PS::F64mat CalcQuadrupole(const PseudoParticle pp[4]){
   PS::F64mat quad = 0.0;
-  for(int i=0;i<3;i++){
+  for(int i=0;i<4;i++){
     quad.xx += pp[i].mass * pp[i].pos.x * pp[i].pos.x;
     quad.yy += pp[i].mass * pp[i].pos.y * pp[i].pos.y;
     quad.zz += pp[i].mass * pp[i].pos.z * pp[i].pos.z;
@@ -263,34 +362,46 @@ PS::F64mat CalcQuadrupole(const PseudoParticle pp[3]){
   return quad;
 }
 
-void GeneratePseudoParticles(PseudoParticle pp[3],
-			     const MomentUnit& mom){
-  if(mom.mass == 0.0){
-    pp[0].mass = pp[1].mass = pp[2].mass = 0.0;
-    pp[0].pos = pp[1].pos = pp[2].pos = 0.0;
-    return;
+class MomentQuadrupole{
+ private:
+void GeneratePseudoParticles(){
+  MomentQuadrupole mom(*this);
+  //generate a pseudoparticle which has same dipole of mom
+  if(mom.di*mom.di == 0.0){
+    pp[3].pos.x = 0.0;
+    pp[3].pos.y = 0.0;
+    pp[3].pos.z = 0.0;
+    pp[3].mass = 0.0;
+  }else{
+    PS::F64 m;
+    if(mom.mass > 0.0) m = -5.0*sqrtf(mom.di*mom.di);
+    else               m =  5.0*sqrtf(mom.di*mom.di);
+    pp[3].pos.x = mom.di.x / m;
+    pp[3].pos.y = mom.di.y / m;
+    pp[3].pos.z = mom.di.z / m;
+    pp[3].mass  = m;
+    //remove multipoles of pp[3] from moment  
+    const PS::F64vec r = pp[3].pos;
+    mom.mass    -= pp[3].mass;
+    mom.di      -= pp[3].mass * r;
+    mom.quad.xx -= pp[3].mass * r.x * r.x;
+    mom.quad.yy -= pp[3].mass * r.y * r.y;
+    mom.quad.zz -= pp[3].mass * r.z * r.z;
+    mom.quad.xy -= pp[3].mass * r.x * r.y;
+    mom.quad.xz -= pp[3].mass * r.x * r.z;
+    mom.quad.yz -= pp[3].mass * r.y * r.z;
+    assert(fabs(mom.di.x)<1e-5 && fabs(mom.di.y)<1e-5 && fabs(mom.di.z)<1e-5);
   }
-#if 0
-  if(mom.nptcl < 3){
-    // place a particle with mass M at center of mass (= 0.0)
-    pp[0].pos  = 0.0;
-    pp[0].mass = mom.mass;
-    // other particle does not exist (masses must be 0.0)
-    pp[1].pos  = pp[2].pos  = 0.0;
-    pp[1].mass = pp[2].mass = 0.0;
-    return;
-  }
-#endif
-  PS::F64mat quad = CalcQuadrupoleMoment(mom.quadrupole);
-  if(mom.mass < 0.0){
-    quad = PS::F64mat(-quad.xx,-quad.yy,-quad.zz,-quad.xy,-quad.xz,-quad.yz);
+  //generate other 3 pseudopoarticles for mono and quad
+  PS::F64mat q = CalcQuadrupoleMoment(mom.quad);
+  if(mom.mass < 0){
+    q = PS::F64mat(-q.xx,-q.yy,-q.zz,-q.xy,-q.xz,-q.yz);
   }
   double w[3],A[9];
-  calc_eigen_value(quad,w,A); // eigenvalues w is in 昇順
-
+  Jacobi3x3(q,w,A); // eigenvalues w is in 昇順
   const PS::F64 mass = fabs(mom.mass);
   assert(w[2]>=w[1] && w[1]>=w[0]);
-  assert(fabs(w[2]+w[1]+w[0]) < 1e-5);
+  //assert(fabs(w[2]+w[1]+w[0]) < 1e-5);
   const PS::F64 alpha = sqrt((2.0*w[2] + w[1]) / mass);
   const PS::F64 beta  =
     (w[2]+2.0*w[1] <= 0.0) ? 0.0 : sqrt((w[2] + 2.0*w[1]) / (3.0*mass));
@@ -308,198 +419,156 @@ void GeneratePseudoParticles(PseudoParticle pp[3],
     const PS::F64vec tmp = pp[k].pos;
     pp[k].pos = tmp.x*e0 + tmp.y*e1 + tmp.z*e2;
   }
+#if 0
+  if((pp[0].pos*pp[0].pos > 100.) || (pp[1].pos*pp[1].pos > 100.) || (pp[2].pos*pp[2].pos > 100.) || (pp[3].pos*pp[3].pos > 100.)   )
+  const PS::F64vec tmp = PS::F64vec(mom.quad.xx,mom.quad.yy,mom.quad.zz);
+  printf("%16.14lf %e %e\n",sqrt(pp[0].pos*pp[0].pos),pp[0].mass,sqrt(tmp*tmp));
+  printf("%16.14lf %e %e\n",sqrt(pp[1].pos*pp[1].pos),pp[1].mass,sqrt(tmp*tmp));
+  printf("%16.14lf %e %e\n",sqrt(pp[2].pos*pp[2].pos),pp[2].mass,sqrt(tmp*tmp));
+  printf("%16.14lf %e %e\n",sqrt(pp[3].pos*pp[3].pos),pp[3].mass,sqrt(tmp*tmp));
+#endif
+#if 0
+  static int count = 0;
+  printf("%d %d %e %e %e\n",count++,0,pp[0].pos.x,pp[0].pos.y,pp[0].pos.z);
+  printf("%d %d %e %e %e\n",count++,1,pp[1].pos.x,pp[1].pos.y,pp[1].pos.z);
+  printf("%d %d %e %e %e\n",count++,2,pp[2].pos.x,pp[2].pos.y,pp[2].pos.z);
+  printf("%d %d %e %e %e\n",count++,3,pp[3].pos.x,pp[3].pos.y,pp[3].pos.z);
+#endif
 }
-
-class MomentQuadrupoleSixPseudoParticleCutoff{
-public:
-  PS::F64    mass;
+  
+ public:
+  PS::S32    nptcl;
   PS::F64vec pos;
-  MomentUnit positive;
-  MomentUnit negative;
+  PS::F64    mass;
+  PS::F64vec di;
+  PS::F64mat quad;
+  PseudoParticle pp[N_PSEUDOPARTICLE];
   PS::F64ort vertex_out_;
+  
+  MomentQuadrupole(){ init(); }
+  MomentQuadrupole(const MomentQuadrupole& m){
+    nptcl = m.nptcl;
+    pos   = m.pos;
+    mass  = m.mass;
+    di    = m.di;
+    quad  = m.quad;
+    for(int i=0;i<N_PSEUDOPARTICLE;i++) pp[i] = m.pp[i];
+    vertex_out_ = m.vertex_out_;
+  }
 
-  MomentQuadrupoleSixPseudoParticleCutoff(){
-    mass = 0.0;
-    pos  = 0.0;
-    positive.init();
-    negative.init();
-    vertex_out_.init();
-  }
-  MomentQuadrupoleSixPseudoParticleCutoff(const PS::F64 & _m,
-					  const PS::F64vec & _p,
-					  const MomentUnit & _pos,
-					  const MomentUnit & _neg,
-					  const PS::F64ort & v_out){
-    mass = _m;
-    pos  = _p;
-    positive = _pos;
-    negative = _neg;
-    vertex_out_ = v_out;
-  }
+  PS::F64vec getPos() const {return pos;}
+  PS::F64ort getVertexOut() const {return vertex_out_;}
+
   void init(){
-    mass = 0.0;
-    pos  = 0.0;
-    positive.init();
-    negative.init();
-    vertex_out_.init();
-  }
-
-  PS::F64vec getPos() const {
-    return pos;
-  }
-  PS::F64ort getVertexOut() const { return vertex_out_; }
-
-  template<class Tepj>
-  void accumulateAtLeaf(Tepj & epj){
-    if(epj.getCharge() > 0.0){
-      mass += epj.getCharge();
-      pos  += epj.getCharge()*epj.getPos();
-      positive.accumulateAtLeaf(epj);
-    }else if(epj.getCharge() < 0.0){
-      mass -= epj.getCharge();
-      pos  -= epj.getCharge()*epj.getPos();
-      negative.accumulateAtLeaf(epj);
-    }else{
-      assert(false && "error: no charge particle exist!");
-    }
-    vertex_out_.merge(epj.getPos(), epj.getRSearch());
+    nptcl = 0;
+    pos   = 0.0;
+    mass  = 0.0;
+    di    = 0.0;
+    quad  = 0.0;
+    for(int i=0;i<N_PSEUDOPARTICLE;i++) pp[i].init();
   }
   template<class Tepj>
-  void accumulateAtLeaf2(Tepj & epj){
-    if(epj.getCharge() > 0.0){
-      positive.accumulateAtLeaf2(epj);
-    }else if(epj.getCharge() < 0.0){
-      negative.accumulateAtLeaf2(epj);
-    }
+  void accumulateAtLeaf(const Tepj& epj){
+    nptcl++;
+    pos  += epj.getPos();
+    mass += epj.getCharge();
+    vertex_out_.merge(epj.getPos(),epj.getRSearch());
+    //vertex_out_.merge(epj.getPos());
+  }
+  void accumulate(const MomentQuadrupole& m){
+    nptcl += m.nptcl;
+    pos   += m.nptcl * m.pos;
+    mass  += m.mass;
+    vertex_out_.merge(m.vertex_out_);
   }
   void set(){
-    pos = pos / mass;
-    positive.set();
-    negative.set();
+    pos = pos / (PS::F64)nptcl;
   }
-  void accumulate(const MomentQuadrupoleSixPseudoParticleCutoff & mom){
-    const PS::F64 m = fabs(mom.mass);
-    mass += m;
-    pos  += m * mom.pos;
-    positive.accumulate(mom.positive);
-    negative.accumulate(mom.negative);
-    vertex_out_.merge(mom.vertex_out_);
+  template <class Tepj>
+  void accumulateAtLeaf2(const Tepj& epj){
+    const PS::F64vec r = epj.getPos() - pos;
+    di += epj.getCharge() * r;
+    quad.xx += epj.getCharge() * r.x * r.x;
+    quad.yy += epj.getCharge() * r.y * r.y;
+    quad.zz += epj.getCharge() * r.z * r.z;
+    quad.xy += epj.getCharge() * r.x * r.y;
+    quad.xz += epj.getCharge() * r.x * r.z;
+    quad.yz += epj.getCharge() * r.y * r.z;
   }
-  void accumulate2(const MomentQuadrupoleSixPseudoParticleCutoff & mom){
-    positive.accumulate2(mom.positive);
-    negative.accumulate2(mom.negative);
+  void accumulate2(const MomentQuadrupole& m){
+    const PS::F64vec r = m.pos - pos;
+    di += m.di - m.mass * r;
+    quad.xx += m.quad.xx - 2.0 * m.di.x * r.x + m.mass * r.x * r.x;
+    quad.yy += m.quad.yy - 2.0 * m.di.y * r.y + m.mass * r.y * r.y;
+    quad.zz += m.quad.zz - 2.0 * m.di.z * r.z + m.mass * r.z * r.z;
+    quad.xy += m.quad.xy - (m.di.x*r.y + m.di.y*r.x) + m.mass * r.x * r.y;
+    quad.xz += m.quad.xz - (m.di.x*r.z + m.di.z*r.x) + m.mass * r.x * r.z;
+    quad.yz += m.quad.yz - (m.di.y*r.z + m.di.z*r.y) + m.mass * r.y * r.z;
   }
-};
-
-
-class SPJQuadrupoleSixPseudoParticleCutoff{
-public:
-  PseudoParticle pp[6]; // pseudo particle of positive(3) and negative(3) charge
-  void copyFromMoment(const MomentQuadrupoleSixPseudoParticleCutoff & mom){
-    GeneratePseudoParticles(pp  ,mom.positive);
-    GeneratePseudoParticles(pp+3,mom.negative);
+  void set2(){
+    GeneratePseudoParticles();
 #ifdef IPS_TREE_PSEUDOPARTICLE_QUADRUPOLE_MOMENT_CHECK
     // check generated pseudo particle reproduce physical quadrupole moment
     {
-      const PS::F64mat qm_ppp = CalcQuadrupoleMoment(CalcQuadrupole(pp));
-      const PS::F64mat qm_mom = CalcQuadrupoleMoment(mom.positive.quadrupole);
-      printf("pseudo: %e %e %e %e %e %e\n",
-	     qm_ppp.xx, qm_ppp.yy, qm_ppp.zz,
-	     qm_ppp.xy, qm_ppp.xz, qm_ppp.yz);
+      const PS::F64mat apprx = CalcQuadrupoleMoment(CalcQuadrupole(pp));
+      const PS::F64mat exact = CalcQuadrupoleMoment(quad);
+      /*
+      printf("pseudo:   %e %e %e %e %e %e\n",
+	     apprx.xx, apprx.yy, apprx.zz,
+	     apprx.xy, apprx.xz, apprx.yz);
       printf("original: %e %e %e %e %e %e\n",
-  	     qm_mom.xx,qm_mom.yy,qm_mom.zz,
-	     qm_mom.xy,qm_mom.xz,qm_mom.yz);
-      assert(fabs(qm_mom.xx) < 1e-6 || fabs((qm_mom.xx-qm_ppp.xx)/qm_mom.xx) < 1e-6);
-      assert(fabs(qm_mom.yy) < 1e-6 || fabs((qm_mom.yy-qm_ppp.yy)/qm_mom.yy) < 1e-6);
-      assert(fabs(qm_mom.zz) < 1e-6 || fabs((qm_mom.zz-qm_ppp.zz)/qm_mom.zz) < 1e-6);
-      assert(fabs(qm_mom.xy) < 1e-6 || fabs((qm_mom.xy-qm_ppp.xy)/qm_mom.xy) < 1e-6);
-      assert(fabs(qm_mom.xz) < 1e-6 || fabs((qm_mom.xz-qm_ppp.xz)/qm_mom.xz) < 1e-6);
-      assert(fabs(qm_mom.yz) < 1e-6 || fabs((qm_mom.yz-qm_ppp.yz)/qm_mom.yz) < 1e-6);
-    }
-    {
-      const PS::F64mat qm_ppn = CalcQuadrupoleMoment(CalcQuadrupole(pp+3));
-      const PS::F64mat qm_mom = CalcQuadrupoleMoment(mom.negative.quadrupole);
-      fprintf(stderr,
-	      "pseudo: %e %e %e %e %e %e\n",
-	      qm_ppn.xx, qm_ppn.yy, qm_ppn.zz,
-	      qm_ppn.xy, qm_ppn.xz, qm_ppn.yz);
-      fprintf(stderr,
-	      "original: %e %e %e %e %e %e\n",
-	      qm_mom.xx,qm_mom.yy,qm_mom.zz,
-	      qm_mom.xy,qm_mom.xz,qm_mom.yz);
-      assert(fabs(qm_mom.xx) < 1e-6 || fabs((qm_mom.xx-qm_ppn.xx)/qm_mom.xx) < 1e-6);
-      assert(fabs(qm_mom.yy) < 1e-6 || fabs((qm_mom.yy-qm_ppn.yy)/qm_mom.yy) < 1e-6);
-      assert(fabs(qm_mom.zz) < 1e-6 || fabs((qm_mom.zz-qm_ppn.zz)/qm_mom.zz) < 1e-6);
-      assert(fabs(qm_mom.xy) < 1e-6 || fabs((qm_mom.xy-qm_ppn.xy)/qm_mom.xy) < 1e-6);
-      assert(fabs(qm_mom.xz) < 1e-6 || fabs((qm_mom.xz-qm_ppn.xz)/qm_mom.xz) < 1e-6);
-      assert(fabs(qm_mom.yz) < 1e-6 || fabs((qm_mom.yz-qm_ppn.yz)/qm_mom.yz) < 1e-6);
+  	     exact.xx,exact.yy,exact.zz,
+	     exact.xy,exact.xz,exact.yz);
+      //*/
+      PS::F64 tmp = std::max(exact.xx,std::max(exact.yy,std::max(exact.zz,std::max(exact.xy,std::max(exact.xz,exact.yz)))));
+      assert(fabs((exact.xx-apprx.xx)/tmp) < 1e-6);
+      assert(fabs((exact.yy-apprx.yy)/tmp) < 1e-6);
+      assert(fabs((exact.zz-apprx.zz)/tmp) < 1e-6);
+      assert(fabs((exact.xy-apprx.xy)/tmp) < 1e-6);
+      assert(fabs((exact.xz-apprx.xz)/tmp) < 1e-6);
+      assert(fabs((exact.yz-apprx.yz)/tmp) < 1e-6);
     }
 #endif
-    for(int i=0;i<3;i++){
-      pp[i  ].pos += mom.positive.pos;
-      pp[i+3].pos += mom.negative.pos;
-    }
+    for(int i=0;i<N_PSEUDOPARTICLE;i++) pp[i].pos += pos;
+  }
+};
+
+class SPJQuadrupole{
+public:
+  PseudoParticle pp[N_PSEUDOPARTICLE];
+  void copyFromMoment(const MomentQuadrupole & mom){
+    for(int i=0;i<N_PSEUDOPARTICLE;i++) pp[i] = mom.pp[i];
   }
   void clear(){
-    pp[0].init();
-    pp[1].init();
-    pp[2].init();
-    pp[3].init();
-    pp[4].init();
-    pp[5].init();
+    for(int i=0;i<N_PSEUDOPARTICLE;i++) pp[i].init();
   }
 
   PS::F32vec getPos() const {
-    PS::F64    mass = 0.0;
-    PS::F64vec pos  = 0.0;
-    for(int i=0;i<6;i++){
-      mass += fabs(pp[i].mass);
-      pos  += fabs(pp[i].mass)*pp[i].pos;
-    }    
-    return pos/mass;
+    PS::S32    nptcl = 0;
+    PS::F64vec pos   = 0.0;
+    for(int i=0;i<N_PSEUDOPARTICLE;i++){
+      nptcl++;
+      pos += pp[i].pos;
+    }
+    return pos/(PS::F64)nptcl;
   }
   void setPos(const PS::F64vec & pos_new) {
-    PS::F64    mass = 0.0;
-    PS::F64vec pos  = 0.0;
-    for(int i=0;i<6;i++){
-      mass += fabs(pp[i].mass);
-      pos  += fabs(pp[i].mass)*pp[i].pos;
-    }
-    pos = pos/mass;
-
-    const PS::F64vec diff = pos_new - pos;
-    for(int i=0;i<6;i++){
-      if(pp[i].mass != 0.0) pp[i].pos += diff;
-    }
+    const PS::F64vec diff = pos_new - getPos();
+    for(int i=0;i<N_PSEUDOPARTICLE;i++) pp[i].pos += diff;
   }
-  MomentQuadrupoleSixPseudoParticleCutoff convertToMoment() const {
-    PS::F64    mass = 0.0;
-    PS::F64vec pos  = 0.0;
-    for(int i=0;i<6;i++){
-      mass += fabs(pp[i].mass);
-      pos  += fabs(pp[i].mass)*pp[i].pos;
-    }
-    pos = pos / mass;
-    MomentUnit positive,negative;
-    for(int i=0;i<3;i++){
-      positive.accumulateAtLeaf(pp[i]);
-      negative.accumulateAtLeaf(pp[i+3]);
-    }
-    positive.set();
-    negative.set();
-
-    PS::F64ort vtx; // dummy vertex
-    vtx.init();
-    /*
-    for(int i=0;i<6;i++){
-      vtx.merge(pp[i].pos);
-    }
-    //*/
-    return MomentQuadrupoleSixPseudoParticleCutoff(mass,pos,positive,negative,vtx);
+  MomentQuadrupole convertToMoment() const {
+    MomentQuadrupole mom;
+    for(int i=0;i<N_PSEUDOPARTICLE;i++)
+      mom.accumulateAtLeaf(pp[i]);
+    mom.set();
+    for(int i=0;i<N_PSEUDOPARTICLE;i++)
+      mom.accumulateAtLeaf2(pp[i]);
+    mom.vertex_out_.init();
+    return MomentQuadrupole(mom);
   }
 
   void DebugPrint() const {
-    for(int k=0;k<6;k++){
+    for(int k=0;k<N_PSEUDOPARTICLE;k++){
       printf("pp[%d]: %lf %lf %lf %lf\n",k,pp[k].mass,pp[k].pos.x,pp[k].pos.y,pp[k].pos.z);
     }
   }

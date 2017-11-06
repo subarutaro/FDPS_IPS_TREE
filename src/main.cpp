@@ -5,8 +5,6 @@
 //
 // Kentaro NOMURA 2017/mm/dd
 //
-// Known problem
-//
 
 #include<iostream>
 #include<fstream>
@@ -22,6 +20,9 @@
 #include "constraint.h"
 #include "water_params.h"
 #include "user_defined_class.h"
+
+#include "timer.h"
+Profile timer;
 
 const PS::F64 alpha[10] = {
   0.19578,
@@ -144,7 +145,7 @@ struct CalcForceEpSp{
       const PS::S64 idi = ep_i[i].id;
       const PS::F64 charge_i  = ep_i[i].charge;
       for(PS::S32 j=0; j<n_jp; j++){
-	for(int k=0;k<6;k++){
+	for(int k=0;k<4;k++){
 	  PS::F64vec rij = ri - ep_j[j].pp[k].pos;
 	  const PS::F64 r2 = rij*rij;
 	  if(0.0 < r2 && r2 <= rc_cl_sq){
@@ -189,9 +190,7 @@ public:
   PS::TreeForForceShort<Force, EP, EP>::Scatter tree_short;
 #endif
   PS::TreeForForceLong
-  <Force, EP, EP,
-   MomentQuadrupoleSixPseudoParticleCutoff,
-   SPJQuadrupoleSixPseudoParticleCutoff>::WithCutoff tree_long;
+  <Force, EP, EP, MomentQuadrupole, SPJQuadrupole>::WithCutoff tree_long;
 
   // Methods for water simulation
   template <class Tpsys>
@@ -215,7 +214,7 @@ public:
       system[i].pot = 0.0;
       system[i].acc = 0.0;
       // search radius must be larger than rcut_cl and shold have enough margin
-      system[i].search_radius = 35.0;
+      system[i].search_radius = 30.0;
     }
     tree_long.calcForceAll(CalcForceEpEp(rcut_lj,rcut_cl),
 			   CalcForceEpSp(rcut_cl),
@@ -246,6 +245,28 @@ public:
     fprintf(stderr,"error= %e\n",error);
 #endif
     assert(system.getNumberOfParticleLocal()%3 == 0);
+  }
+
+  void PrintTime(){
+      PS::TimeProfile time_profile = tree_long.getTimeProfile();
+      printf("Total time of TreeForForceLong: %e\n",time_profile.getTotalTime());
+      printf("set_particle_local_tree\t\t\t\t%e \n",time_profile.set_particle_local_tree);
+      printf("set_root_cell\t\t\t\t\t%e \n",time_profile.set_root_cell);
+      printf("morton_sort_local_tree\t\t\t\t%e \n",time_profile.morton_sort_local_tree);
+      printf("link_cell_local_tree\t\t\t\t%e \n",time_profile.link_cell_local_tree);
+      printf("calc_moment_local_tree\t\t\t\t%e \n",time_profile.calc_moment_local_tree);
+      printf("exchange_LET_1st\t\t\t\t%e \n",time_profile.exchange_LET_1st);
+      printf("exchange_LET_2nd\t\t\t\t%e \n",time_profile.exchange_LET_2nd);
+      printf("set_particle_global_tree\t\t\t%e \n",time_profile.set_particle_global_tree);
+      printf("morton_sort_global_tree\t\t\t\t%e \n",time_profile.morton_sort_global_tree);
+      printf("link_cell_global_tree\t\t\t\t%e \n",time_profile.link_cell_global_tree);
+      printf("calc_moment_global_tree\t\t\t\t%e \n",time_profile.calc_moment_global_tree);
+      printf("calc_force:\t\t\t\t\t%e \n",time_profile.calc_force);
+
+      printf("\tcalc_force__core:\t\t\t\t%e \n",time_profile.calc_force__core);
+      printf("\tcalc_force__make_interaction_list:\t\t%e \n",time_profile.calc_force__make_interaction_list);
+      //printf("\tcalc_force__core__walk_tree:\t\t\t%e \n",time_profile.calc_force__core__walk_tree);
+      //printf("\ttime_profile_.calc_force__copy_original_order:\t%e \n",time_profile.calc_force__copy_original_order);
   }
 };
 
@@ -309,7 +330,9 @@ template<class Tpsys>
 void MakeIceLattice(Tpsys &psys,
 		    PS::F64vec &cell_size){
 
-  const PS::S32 nx=8,ny=8,nz=4;
+  const PS::S32 nx=10,ny=10,nz=6;
+  //const PS::S32 nx=8,ny=8,nz=4;
+  //const PS::S32 nx=4,ny=2,nz=2;
   const PS::F64vec unit(4.511,4.511,7.315);
   cell_size.x = unit.x * nx * sin(M_PI*60./180.);
   cell_size.y = unit.y * ny;
@@ -489,7 +512,7 @@ int main(int argc, char *argv[]){
 
   PS::F64 dt   = 2.0 * 1e-15 / unit_time; // 2 fs
 
-  PS::S32 n_group_limit = 64;
+  PS::S32 n_group_limit = 256;
   PS::S32 nstep      = 1000;
   PS::S32 nstep_eq   = 1000;
   PS::S32 nstep_snp  = 100;
@@ -630,7 +653,9 @@ int main(int argc, char *argv[]){
   const PS::S32 nstep_em = 0.5 * nstep_eq;
 
   // Main roop
+  timer.flush();
   for(int s=-nstep_eq;s<nstep;s++){
+    timer.beg(Profile::OTHER);
     if(s < 0) ScaleVelocity(system_water,temperature);
     if(s%1000==0) RemoveTotalMomentum(system_water);
 
@@ -647,7 +672,8 @@ int main(int argc, char *argv[]){
       if(PS::Comm::getRank() == 0) printf("Etot0 = %lf, Epot0 = %lf, Ekin0 = %lf\n",Etot0,Epot0,Ekin0);
       isInitialized = true;
     }
-
+    timer.end(Profile::OTHER);
+    timer.beg(Profile::INTEG);
     for(int i=0;i<system_water.getNumberOfParticleLocal()/3;i++){
       for(int j=0;j<3;j++){
 	system_water[3*i+j].KeepCurrentPos();
@@ -658,21 +684,31 @@ int main(int argc, char *argv[]){
     }
     SetGravityCenterForAtoms(system_water);
     PeriodicBoundaryCondition(system_water,dinfo);
+    timer.end(Profile::INTEG);
     if(s%10 == 0){
+      timer.beg(Profile::DECOMP);
       dinfo.collectSampleParticle(system_water);
       dinfo.decomposeDomain();
+      timer.end(Profile::DECOMP);
     }
+    timer.beg(Profile::EXCHANGE);
     system_water.exchangeParticle(dinfo);
+    timer.end(Profile::EXCHANGE);
     assert(system_water.getNumberOfParticleLocal()%3 == 0);
 
+    timer.beg(Profile::FORCE);
     ips_tree(system_water, dinfo);
-
+    timer.end(Profile::FORCE);
+    
+    timer.beg(Profile::INTEG);
     for(int i=0;i<system_water.getNumberOfParticleLocal();i++){
       system_water[i].IntegrateVel(0.5*dt);
     }
     for(int i=0;i<system_water.getNumberOfParticleLocal()/3;i++){
       constraint.Rattle(&system_water[3*i],box_size,dt);
     }
+    timer.end(Profile::INTEG);
+    timer.beg(Profile::OTHER);
     CalcEnergy(system_water, Etot1, Ekin1, Epot1);
     if(s>=0){
       Epot_ave += Epot1;
@@ -687,7 +723,10 @@ int main(int argc, char *argv[]){
       }
     }
     time_sys += dt;
+    timer.end(Profile::OTHER);
   }
+  ips_tree.PrintTime();
+  
   PS::Finalize();
   return 0;
 }
